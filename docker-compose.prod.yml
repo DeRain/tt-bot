@@ -1,0 +1,11 @@
+services:
+  bot:
+    build: .
+    env_file:
+      - .env
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: "0.5"
