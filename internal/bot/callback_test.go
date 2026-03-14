@@ -58,7 +58,7 @@ func TestCallback_CategoryWithPendingMagnet_CallsAddMagnet(t *testing.T) {
 	sender := &mockSender{}
 	qbtClient := &mockQBTClient{}
 	auth := NewAuthorizer([]int64{1})
-	h := New(sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
 
 	magnet := "magnet:?xt=urn:btih:abc123"
 	h.storePending(1, &PendingTorrent{MagnetLink: magnet, CreatedAt: time.Now()})
@@ -82,7 +82,7 @@ func TestCallback_CategoryWithNoPending_ReturnsError(t *testing.T) {
 	sender := &mockSender{}
 	qbtClient := &mockQBTClient{}
 	auth := NewAuthorizer([]int64{1})
-	h := New(sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
 
 	// No pending torrent stored.
 	update := newCallbackUpdate(1, "cb2", "cat:Movies")
@@ -116,7 +116,7 @@ func TestCallback_PaginationAll_FetchesCorrectPage(t *testing.T) {
 	}
 	qbtClient := &mockQBTClient{torrents: torrents}
 	auth := NewAuthorizer([]int64{1})
-	h := New(sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
 
 	update := newCallbackUpdate(1, "cb3", "pg:all:2")
 	h.HandleUpdate(context.Background(), update)
@@ -134,7 +134,7 @@ func TestCallback_PaginationActive_FetchesCorrectPage(t *testing.T) {
 	}
 	qbtClient := &mockQBTClient{torrents: torrents}
 	auth := NewAuthorizer([]int64{1})
-	h := New(sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
 
 	update := newCallbackUpdate(1, "cb4", "pg:act:2")
 	h.HandleUpdate(context.Background(), update)
@@ -148,7 +148,7 @@ func TestCallback_Noop_JustAnswers(t *testing.T) {
 	sender := &mockSender{}
 	qbtClient := &mockQBTClient{}
 	auth := NewAuthorizer([]int64{1})
-	h := New(sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
 
 	update := newCallbackUpdate(1, "cb5", "noop")
 	h.HandleUpdate(context.Background(), update)
@@ -166,7 +166,7 @@ func TestCallback_CategoryWithNoCategory_ShowsGenericConfirm(t *testing.T) {
 	sender := &mockSender{}
 	qbtClient := &mockQBTClient{}
 	auth := NewAuthorizer([]int64{1})
-	h := New(sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
 
 	h.storePending(1, &PendingTorrent{MagnetLink: "magnet:?xt=urn:btih:fff", CreatedAt: time.Now()})
 

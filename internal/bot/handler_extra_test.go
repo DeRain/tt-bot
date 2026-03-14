@@ -23,7 +23,7 @@ func TestEvictExpired_RemovesOldEntries(t *testing.T) {
 	sender := &mockSender{}
 	qbtClient := &mockQBTClient{}
 	auth := NewAuthorizer([]int64{1})
-	h := New(sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
 
 	// Insert one stale and one fresh entry.
 	h.mu.Lock()
@@ -102,7 +102,7 @@ func TestHandler_TorrentFile_StoresPendingAndShowsCategories(t *testing.T) {
 	// Construct token such that fmt.Sprintf("https://api.telegram.org/file/bot%s/%s", token, path)
 	// points to our local server. Not practical without mocking transport.
 	// Instead, call downloadFile directly.
-	h := New(sender, qbtClient, auth, "irrelevant")
+	h := New(context.Background(), sender, qbtClient, auth, "irrelevant")
 
 	data, err := h.downloadFile(context.Background(), strings.TrimPrefix(srv.URL, "http:/"))
 	// downloadFile prepends "https://api.telegram.org/file/bot<token>/..."
@@ -126,7 +126,7 @@ func TestDownloadFile_Success(t *testing.T) {
 	sender := &mockSender{}
 	qbtClient := &mockQBTClient{}
 	auth := NewAuthorizer([]int64{1})
-	h := New(sender, qbtClient, auth, "tok")
+	h := New(context.Background(), sender, qbtClient, auth, "tok")
 
 	// Build a URL that downloadFile would produce: we derive token+path so
 	// that "https://api.telegram.org/file/bottok/<path>" → our server.
@@ -169,7 +169,7 @@ func TestHandler_ActiveCommand(t *testing.T) {
 		},
 	}
 	auth := NewAuthorizer([]int64{1})
-	h := New(sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
 
 	update := newCommandUpdate(1, 1, "active")
 	h.HandleUpdate(context.Background(), update)
@@ -187,7 +187,7 @@ func TestHandler_ListCommand_QBTError(t *testing.T) {
 	sender := &mockSender{}
 	qbtClient := &errorQBTClient{listErr: fmt.Errorf("connection refused")}
 	auth := NewAuthorizer([]int64{1})
-	h := New(sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
 
 	update := newCommandUpdate(1, 1, "list")
 	h.HandleUpdate(context.Background(), update)
@@ -201,7 +201,7 @@ func TestCallback_PaginationInvalidPage_ReturnsError(t *testing.T) {
 	sender := &mockSender{}
 	qbtClient := &mockQBTClient{}
 	auth := NewAuthorizer([]int64{1})
-	h := New(sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
 
 	update := newCallbackUpdate(1, "cb99", "pg:all:notanumber")
 	h.HandleUpdate(context.Background(), update)
@@ -223,7 +223,7 @@ func TestCallback_AddMagnetError(t *testing.T) {
 	sender := &mockSender{}
 	qbtClient := &mockQBTClient{addMagnetErr: fmt.Errorf("qbt unavailable")}
 	auth := NewAuthorizer([]int64{1})
-	h := New(sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
 
 	h.storePending(1, &PendingTorrent{MagnetLink: "magnet:?xt=urn:btih:aaa", CreatedAt: time.Now()})
 
@@ -243,7 +243,7 @@ func TestCallback_UnknownData_Answers(t *testing.T) {
 	sender := &mockSender{}
 	qbtClient := &mockQBTClient{}
 	auth := NewAuthorizer([]int64{1})
-	h := New(sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
 
 	update := newCallbackUpdate(1, "cbUnk", "unknown:data")
 	h.HandleUpdate(context.Background(), update)

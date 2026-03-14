@@ -64,8 +64,8 @@ type Handler struct {
 // New constructs a Handler and starts the background cleanup goroutine that
 // evicts pending torrent entries older than pendingTTL.
 // botToken is required to construct the file-download URL for .torrent uploads.
-// The cleanup goroutine respects ctx cancellation for clean shutdown.
-func New(sender Sender, qbtClient qbt.Client, auth *Authorizer, botToken string, ctx ...context.Context) *Handler {
+// ctx controls the lifetime of the background cleanup goroutine.
+func New(ctx context.Context, sender Sender, qbtClient qbt.Client, auth *Authorizer, botToken string) *Handler {
 	h := &Handler{
 		sender:     sender,
 		qbt:        qbtClient,
@@ -74,11 +74,7 @@ func New(sender Sender, qbtClient qbt.Client, auth *Authorizer, botToken string,
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 		pending:    make(map[int64]*PendingTorrent),
 	}
-	cleanupCtx := context.Background()
-	if len(ctx) > 0 && ctx[0] != nil {
-		cleanupCtx = ctx[0]
-	}
-	go h.runCleanup(cleanupCtx)
+	go h.runCleanup(ctx)
 	return h
 }
 

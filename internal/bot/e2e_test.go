@@ -53,7 +53,7 @@ func TestE2E_UnauthorizedUserRejected(t *testing.T) {
 	qbtClient := getQBTClient(t)
 	sender := &mockSender{}
 	auth := NewAuthorizer([]int64{999}) // only user 999 is allowed
-	h := New(sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
 
 	update := newCommandUpdate(100, 123, "list")
 	h.HandleUpdate(context.Background(), update)
@@ -74,7 +74,7 @@ func TestE2E_AddMagnetWithCategorySelection(t *testing.T) {
 	qbtClient := getQBTClient(t)
 	sender := &mockSender{}
 	auth := NewAuthorizer([]int64{userID})
-	h := New(sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
 
 	ctx := context.Background()
 
@@ -161,7 +161,7 @@ func TestE2E_ListReturnsRealTorrents(t *testing.T) {
 
 	sender := &mockSender{}
 	auth := NewAuthorizer([]int64{userID})
-	h := New(sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
 
 	update := newCommandUpdate(chatID, userID, "list")
 	h.HandleUpdate(ctx, update)
@@ -204,7 +204,7 @@ func TestE2E_ListPagination(t *testing.T) {
 
 	sender := &mockSender{}
 	auth := NewAuthorizer([]int64{userID})
-	h := New(sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
 
 	// Step 1: Fetch page 1.
 	listUpdate := newCommandUpdate(chatID, userID, "list")
@@ -246,7 +246,7 @@ func TestE2E_ActiveCommandShowsDownloading(t *testing.T) {
 
 	sender := &mockSender{}
 	auth := NewAuthorizer([]int64{userID})
-	h := New(sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
 
 	update := newCommandUpdate(chatID, userID, "active")
 	h.HandleUpdate(ctx, update)

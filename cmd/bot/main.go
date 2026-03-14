@@ -61,7 +61,7 @@ func main() {
 
 	// 5. Create the bot handler (passes ctx for cleanup goroutine shutdown).
 	auth := bot.NewAuthorizer(cfg.AllowedUsers)
-	handler := bot.New(botAPI, qbtClient, auth, cfg.TelegramToken, ctx)
+	handler := bot.New(ctx, botAPI, qbtClient, auth, cfg.TelegramToken)
 
 	// 6. Create the completion notifier.
 	notifier := &telegramNotifier{bot: botAPI}

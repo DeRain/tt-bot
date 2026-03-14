@@ -137,7 +137,7 @@ func TestHandler_UnauthorizedUser(t *testing.T) {
 	sender := &mockSender{}
 	qbtClient := &mockQBTClient{}
 	auth := NewAuthorizer([]int64{999}) // user 1 is NOT allowed
-	h := New(sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
 
 	update := newTestMessage(1, 1, "hello")
 	h.HandleUpdate(context.Background(), update)
@@ -151,7 +151,7 @@ func TestHandler_HelpCommand(t *testing.T) {
 	sender := &mockSender{}
 	qbtClient := &mockQBTClient{}
 	auth := NewAuthorizer([]int64{1})
-	h := New(sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
 
 	update := newCommandUpdate(1, 1, "help")
 	h.HandleUpdate(context.Background(), update)
@@ -165,7 +165,7 @@ func TestHandler_StartCommand(t *testing.T) {
 	sender := &mockSender{}
 	qbtClient := &mockQBTClient{}
 	auth := NewAuthorizer([]int64{1})
-	h := New(sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
 
 	update := newCommandUpdate(1, 1, "start")
 	h.HandleUpdate(context.Background(), update)
@@ -179,7 +179,7 @@ func TestHandler_ListCommand_NoTorrents(t *testing.T) {
 	sender := &mockSender{}
 	qbtClient := &mockQBTClient{torrents: []qbt.Torrent{}}
 	auth := NewAuthorizer([]int64{1})
-	h := New(sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
 
 	update := newCommandUpdate(1, 1, "list")
 	h.HandleUpdate(context.Background(), update)
@@ -197,7 +197,7 @@ func TestHandler_ListCommand_WithTorrents(t *testing.T) {
 		},
 	}
 	auth := NewAuthorizer([]int64{1})
-	h := New(sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
 
 	update := newCommandUpdate(1, 1, "list")
 	h.HandleUpdate(context.Background(), update)
@@ -213,7 +213,7 @@ func TestHandler_MagnetLink_StoresPendingAndShowsCategories(t *testing.T) {
 		categories: []qbt.Category{{Name: "Movies"}, {Name: "TV"}},
 	}
 	auth := NewAuthorizer([]int64{1})
-	h := New(sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
 
 	magnet := "magnet:?xt=urn:btih:abc123&dn=test"
 	update := newTestMessage(1, 1, magnet)
@@ -243,7 +243,7 @@ func TestHandler_MagnetLink_MidText(t *testing.T) {
 		categories: []qbt.Category{{Name: "Movies"}},
 	}
 	auth := NewAuthorizer([]int64{1})
-	h := New(sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
 
 	update := newTestMessage(1, 1, "here is my link magnet:?xt=urn:btih:deadbeef thanks")
 	h.HandleUpdate(context.Background(), update)
