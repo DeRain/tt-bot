@@ -11,8 +11,8 @@ test:
 
 test-integration:
 	docker compose -f docker-compose.test.yml up -d qbittorrent
-	./scripts/wait-for-qbt.sh
-	go test ./... -tags=integration -run Integration -v
+	QBITTORRENT_URL=http://localhost:18080 ./scripts/wait-for-qbt.sh
+	QBITTORRENT_URL=http://localhost:18080 QBITTORRENT_USERNAME=admin QBITTORRENT_PASSWORD="" go test ./... -tags=integration -run Integration -v -count=1
 	docker compose -f docker-compose.test.yml down
 
 test-e2e:
