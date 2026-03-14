@@ -41,11 +41,11 @@ All 8 phases complete AND `make gate-all` passes AND integration tests pass.
 ## Current State
 
 - [x] Phase 0: Scaffolding (go.mod, .gitignore, .env.example, Makefile, .golangci.yml)
-- [ ] Phase 1: Config package
-- [ ] Phase 2: qBittorrent client
-- [ ] Phase 3: Docker test infrastructure
-- [ ] Phase 4: Message formatter
-- [ ] Phase 5: Bot handlers
-- [ ] Phase 6: Completion poller
-- [ ] Phase 7: Entry point + production Docker
-- [ ] Phase 8: E2E tests + CI
+- [x] Phase 1: Config package (91.3% coverage)
+- [x] Phase 2: qBittorrent client (72.1% coverage)
+- [x] Phase 3: Docker test infrastructure (4 integration tests pass)
+- [x] Phase 4: Message formatter (96.4% coverage)
+- [x] Phase 5: Bot handlers (80.0% coverage)
+- [x] Phase 6: Completion poller (87.0% coverage)
+- [x] Phase 7: Entry point + production Docker
+- [x] Phase 8: E2E tests (5 E2E + 4 integration = 9 tests against real qBittorrent)
