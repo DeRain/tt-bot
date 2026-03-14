@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -199,7 +200,8 @@ func (h *Handler) handleTorrentFile(ctx context.Context, msg *tgbotapi.Message) 
 
 	data, err := h.downloadFile(ctx, fileInfo.FilePath)
 	if err != nil {
-		h.replyText(msg.Chat.ID, fmt.Sprintf("Failed to download file: %v", err))
+		log.Printf("bot: download file %s: %v", doc.FileName, err)
+		h.replyText(msg.Chat.ID, "Failed to download file. Please try again.")
 		return
 	}
 
@@ -213,9 +215,15 @@ func (h *Handler) handleTorrentFile(ctx context.Context, msg *tgbotapi.Message) 
 }
 
 // downloadFile fetches the file from the Telegram CDN using the bot token.
+// Errors are sanitized to avoid leaking the bot token (which appears in the URL).
 func (h *Handler) downloadFile(ctx context.Context, filePath string) ([]byte, error) {
 	url := fmt.Sprintf("https://api.telegram.org/file/bot%s/%s", h.token, filePath)
-	return downloadFileURL(ctx, h.httpClient, url)
+	data, err := downloadFileURL(ctx, h.httpClient, url)
+	if err != nil {
+		// Sanitize: don't propagate URL (contains bot token) in error
+		return nil, fmt.Errorf("failed to download file %s", filePath)
+	}
+	return data, nil
 }
 
 // downloadFileURL fetches raw bytes from url using the provided client.
@@ -275,8 +283,7 @@ func (h *Handler) sendTorrentPage(ctx context.Context, chatID int64, filter qbt.
 	replyMsg.ReplyMarkup = toTGKeyboard(kb)
 
 	if _, err := h.sender.Send(replyMsg); err != nil {
-		// Best-effort; log via stderr is out of scope for this package.
-		_ = err
+		log.Printf("bot: send error: %v", err)
 	}
 }
 
@@ -294,7 +301,7 @@ func (h *Handler) sendCategoryKeyboard(ctx context.Context, chatID int64, prompt
 	msg.ReplyMarkup = toTGKeyboard(kb)
 
 	if _, err := h.sender.Send(msg); err != nil {
-		_ = err
+		log.Printf("bot: send error: %v", err)
 	}
 }
 
@@ -302,7 +309,7 @@ func (h *Handler) sendCategoryKeyboard(ctx context.Context, chatID int64, prompt
 func (h *Handler) replyText(chatID int64, text string) {
 	msg := tgbotapi.NewMessage(chatID, text)
 	if _, err := h.sender.Send(msg); err != nil {
-		_ = err
+		log.Printf("bot: send error: %v", err)
 	}
 }
 
@@ -333,7 +340,7 @@ func (h *Handler) editMessageText(chatID int64, messageID int, text string, kb *
 		edit.ReplyMarkup = kb
 	}
 	if _, err := h.sender.Send(edit); err != nil {
-		_ = err
+		log.Printf("bot: send error: %v", err)
 	}
 }
 
@@ -341,7 +348,7 @@ func (h *Handler) editMessageText(chatID int64, messageID int, text string, kb *
 func (h *Handler) answerCallback(callbackID string, text string) {
 	answer := tgbotapi.NewCallback(callbackID, text)
 	if _, err := h.sender.Send(answer); err != nil {
-		_ = err
+		log.Printf("bot: send error: %v", err)
 	}
 }
 

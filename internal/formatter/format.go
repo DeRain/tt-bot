@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/home/tt-bot/internal/qbt"
 )
@@ -182,8 +183,12 @@ func CategoryKeyboard(categories []qbt.Category) Keyboard {
 	for _, cat := range categories {
 		data := prefix + cat.Name
 		// Truncate to MaxCallbackData bytes (not runes) as Telegram enforces byte length.
+		// Back off to a valid UTF-8 boundary to avoid splitting a multi-byte sequence.
 		if len(data) > MaxCallbackData {
 			data = data[:MaxCallbackData]
+			for len(data) > 0 && !utf8.Valid([]byte(data)) {
+				data = data[:len(data)-1]
+			}
 		}
 		kb = append(kb, ButtonRow{
 			Button{Text: cat.Name, CallbackData: data},

@@ -111,11 +111,17 @@ func (p *Poller) poll(ctx context.Context) {
 			continue
 		}
 
+		var wg sync.WaitGroup
 		for _, chatID := range p.chatIDs {
-			if err := p.notifier.NotifyCompletion(ctx, chatID, t); err != nil {
-				log.Printf("poller: notify chat %d for torrent %q: %v", chatID, t.Name, err)
-			}
+			wg.Add(1)
+			go func(cid int64) {
+				defer wg.Done()
+				if err := p.notifier.NotifyCompletion(ctx, cid, t); err != nil {
+					log.Printf("poller: notify chat %d: %v", cid, err)
+				}
+			}(chatID)
 		}
+		wg.Wait()
 	}
 
 	p.pruneDeleted(currentHashes)

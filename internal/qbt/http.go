@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"sync"
+	"time"
 )
 
 // HTTPClient is a qBittorrent API client that communicates over HTTP.
@@ -35,7 +36,7 @@ func NewHTTPClient(baseURL, username, password string) *HTTPClient {
 		baseURL:    baseURL,
 		username:   username,
 		password:   password,
-		httpClient: &http.Client{},
+		httpClient: &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
@@ -87,15 +88,20 @@ func (c *HTTPClient) loginLocked(ctx context.Context) error {
 	return fmt.Errorf("qbt login: SID cookie not found in response")
 }
 
-// doWithAuth executes req attaching the session cookie. If the server responds
-// with 403 it re-authenticates once (holding the mutex to avoid thundering herd)
-// and retries the request.
-// The caller is responsible for closing the returned response body.
-func (c *HTTPClient) doWithAuth(req *http.Request) (*http.Response, error) {
+// doWithRetry executes the request produced by buildReq, attaching the session
+// cookie. If the server responds with 403 it re-authenticates once and retries
+// by calling buildReq again to obtain a fresh request (necessary for multipart
+// bodies that cannot be re-read). The caller is responsible for closing the
+// returned response body.
+func (c *HTTPClient) doWithRetry(ctx context.Context, buildReq func() (*http.Request, error)) (*http.Response, error) {
+	req, err := buildReq()
+	if err != nil {
+		return nil, err
+	}
+
 	c.mu.Lock()
 	sid := c.sid
 	c.mu.Unlock()
-
 	attachCookie(req, sid)
 
 	resp, err := c.httpClient.Do(req)
@@ -111,7 +117,7 @@ func (c *HTTPClient) doWithAuth(req *http.Request) (*http.Response, error) {
 
 	// Re-authenticate under lock to prevent multiple simultaneous logins.
 	c.mu.Lock()
-	loginErr := c.loginLocked(req.Context())
+	loginErr := c.loginLocked(ctx)
 	newSID := c.sid
 	c.mu.Unlock()
 
@@ -119,9 +125,10 @@ func (c *HTTPClient) doWithAuth(req *http.Request) (*http.Response, error) {
 		return nil, fmt.Errorf("qbt re-auth: %w", loginErr)
 	}
 
-	// Retry the original request. We must rebuild it because http.Request bodies
-	// are consumed after the first Do; callers use body-less or buffered requests.
-	retryReq := req.Clone(req.Context())
+	retryReq, err := buildReq()
+	if err != nil {
+		return nil, fmt.Errorf("qbt rebuild request after re-auth: %w", err)
+	}
 	attachCookie(retryReq, newSID)
 
 	retryResp, err := c.httpClient.Do(retryReq)
@@ -129,6 +136,20 @@ func (c *HTTPClient) doWithAuth(req *http.Request) (*http.Response, error) {
 		return nil, fmt.Errorf("qbt retry after re-auth: %w", err)
 	}
 	return retryResp, nil
+}
+
+// doWithAuth executes req attaching the session cookie. If the server responds
+// with 403 it re-authenticates once (holding the mutex to avoid thundering herd)
+// and retries the request.
+// The caller is responsible for closing the returned response body.
+func (c *HTTPClient) doWithAuth(req *http.Request) (*http.Response, error) {
+	ctx := req.Context()
+	// Capture req in a closure so doWithRetry can clone it for the retry.
+	// Body-less or pre-buffered requests are safe to clone.
+	original := req
+	return c.doWithRetry(ctx, func() (*http.Request, error) {
+		return original.Clone(ctx), nil
+	})
 }
 
 // attachCookie sets the SID session cookie on req, replacing any existing SID.
@@ -219,44 +240,9 @@ func (c *HTTPClient) AddTorrentFile(ctx context.Context, filename string, data i
 		return req, nil
 	}
 
-	req, err := buildRequest()
+	resp, err := c.doWithRetry(ctx, buildRequest)
 	if err != nil {
 		return fmt.Errorf("qbt add torrent file: %w", err)
-	}
-
-	// doWithAuth may need to retry; because the multipart body is already in the
-	// buffer we use a custom retry path here.
-	c.mu.Lock()
-	sid := c.sid
-	c.mu.Unlock()
-	attachCookie(req, sid)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("qbt add torrent file: %w", err)
-	}
-
-	if resp.StatusCode == http.StatusForbidden {
-		resp.Body.Close() //nolint:errcheck
-
-		c.mu.Lock()
-		loginErr := c.loginLocked(ctx)
-		newSID := c.sid
-		c.mu.Unlock()
-		if loginErr != nil {
-			return fmt.Errorf("qbt add torrent file: re-auth: %w", loginErr)
-		}
-
-		req2, err := buildRequest()
-		if err != nil {
-			return fmt.Errorf("qbt add torrent file: rebuild request: %w", err)
-		}
-		attachCookie(req2, newSID)
-
-		resp, err = c.httpClient.Do(req2)
-		if err != nil {
-			return fmt.Errorf("qbt add torrent file: retry: %w", err)
-		}
 	}
 	defer resp.Body.Close()
 
