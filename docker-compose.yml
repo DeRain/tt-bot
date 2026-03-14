@@ -1,0 +1,28 @@
+services:
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+      - WEBUI_PORT=8080
+    volumes:
+      - qbt-config:/config
+      - qbt-downloads:/downloads
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  bot:
+    build: .
+    depends_on:
+      - qbittorrent
+    env_file:
+      - .env
+    environment:
+      - QBITTORRENT_URL=http://qbittorrent:8080
+    restart: unless-stopped
+
+volumes:
+  qbt-config:
+  qbt-downloads:
