@@ -132,7 +132,7 @@ func TestDownloadFile_Success(t *testing.T) {
 	// that "https://api.telegram.org/file/bottok/<path>" → our server.
 	// Since we cannot rewrite the host, call the internal helper with a full
 	// URL via a transparent wrapper exposed only in tests.
-	data, err := downloadFileURL(context.Background(), srv.URL+"/file.torrent")
+	data, err := downloadFileURL(context.Background(), http.DefaultClient, srv.URL+"/file.torrent")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestDownloadFile_HTTPError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := downloadFileURL(context.Background(), srv.URL+"/file.torrent")
+	_, err := downloadFileURL(context.Background(), http.DefaultClient, srv.URL+"/file.torrent")
 	if err == nil {
 		t.Fatal("expected error for non-200 response")
 	}

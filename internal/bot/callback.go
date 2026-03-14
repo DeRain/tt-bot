@@ -93,17 +93,6 @@ func (h *Handler) handlePaginationCallback(
 	chatID := cq.Message.Chat.ID
 	messageID := cq.Message.MessageID
 
-	offset := (page - 1) * formatter.TorrentsPerPage
-	torrents, err := h.qbt.ListTorrents(ctx, qbt.ListOptions{
-		Filter: filter,
-		Limit:  formatter.TorrentsPerPage,
-		Offset: offset,
-	})
-	if err != nil {
-		h.answerCallback(cq.ID, fmt.Sprintf("Error: %v", err))
-		return
-	}
-
 	all, err := h.qbt.ListTorrents(ctx, qbt.ListOptions{Filter: filter})
 	if err != nil {
 		h.answerCallback(cq.ID, fmt.Sprintf("Error: %v", err))
@@ -111,6 +100,15 @@ func (h *Handler) handlePaginationCallback(
 	}
 
 	totalPages := formatter.TotalPages(len(all), formatter.TorrentsPerPage)
+	offset := (page - 1) * formatter.TorrentsPerPage
+	end := offset + formatter.TorrentsPerPage
+	if end > len(all) {
+		end = len(all)
+	}
+	var torrents []qbt.Torrent
+	if offset < len(all) {
+		torrents = all[offset:end]
+	}
 	text := formatter.FormatTorrentList(torrents, page, totalPages)
 
 	kb := toTGKeyboard(formatter.PaginationKeyboard(page, totalPages, filterPrefix))

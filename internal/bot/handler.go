@@ -52,35 +52,48 @@ type PendingTorrent struct {
 // Handler dispatches incoming Telegram updates to the appropriate handler
 // functions. It owns the per-chat pending torrent state.
 type Handler struct {
-	sender  Sender
-	qbt     qbt.Client
-	auth    *Authorizer
-	token   string
-	pending map[int64]*PendingTorrent
-	mu      sync.Mutex
+	sender     Sender
+	qbt        qbt.Client
+	auth       *Authorizer
+	token      string
+	httpClient *http.Client
+	pending    map[int64]*PendingTorrent
+	mu         sync.Mutex
 }
 
 // New constructs a Handler and starts the background cleanup goroutine that
 // evicts pending torrent entries older than pendingTTL.
 // botToken is required to construct the file-download URL for .torrent uploads.
-func New(sender Sender, qbtClient qbt.Client, auth *Authorizer, botToken string) *Handler {
+// The cleanup goroutine respects ctx cancellation for clean shutdown.
+func New(sender Sender, qbtClient qbt.Client, auth *Authorizer, botToken string, ctx ...context.Context) *Handler {
 	h := &Handler{
-		sender:  sender,
-		qbt:     qbtClient,
-		auth:    auth,
-		token:   botToken,
-		pending: make(map[int64]*PendingTorrent),
+		sender:     sender,
+		qbt:        qbtClient,
+		auth:       auth,
+		token:      botToken,
+		httpClient: &http.Client{Timeout: 30 * time.Second},
+		pending:    make(map[int64]*PendingTorrent),
 	}
-	go h.runCleanup()
+	cleanupCtx := context.Background()
+	if len(ctx) > 0 && ctx[0] != nil {
+		cleanupCtx = ctx[0]
+	}
+	go h.runCleanup(cleanupCtx)
 	return h
 }
 
 // runCleanup periodically evicts expired pending torrent entries.
-func (h *Handler) runCleanup() {
+// It returns when ctx is cancelled.
+func (h *Handler) runCleanup(ctx context.Context) {
 	ticker := time.NewTicker(cleanupInterval)
 	defer ticker.Stop()
-	for range ticker.C {
-		h.evictExpired()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			h.evictExpired()
+		}
 	}
 }
 
@@ -110,8 +123,8 @@ func (h *Handler) HandleUpdate(ctx context.Context, update tgbotapi.Update) {
 
 	msg := update.Message
 
-	// Authorisation check.
-	if !h.auth.IsAllowed(msg.From.ID) {
+	// Authorisation check. msg.From is nil for channel posts.
+	if msg.From == nil || !h.auth.IsAllowed(msg.From.ID) {
 		h.replyText(msg.Chat.ID, "Access denied.")
 		return
 	}
@@ -206,18 +219,19 @@ func (h *Handler) handleTorrentFile(ctx context.Context, msg *tgbotapi.Message) 
 // downloadFile fetches the file from the Telegram CDN using the bot token.
 func (h *Handler) downloadFile(ctx context.Context, filePath string) ([]byte, error) {
 	url := fmt.Sprintf("https://api.telegram.org/file/bot%s/%s", h.token, filePath)
-	return downloadFileURL(ctx, url)
+	return downloadFileURL(ctx, h.httpClient, url)
 }
 
-// downloadFileURL fetches raw bytes from url. It is a package-level function
-// so that tests can call it directly with a local httptest server URL.
-func downloadFileURL(ctx context.Context, url string) ([]byte, error) {
+// downloadFileURL fetches raw bytes from url using the provided client.
+// It is a package-level function so that tests can call it directly with
+// a local httptest server URL.
+func downloadFileURL(ctx context.Context, client *http.Client, url string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("http get: %w", err)
 	}
@@ -234,30 +248,25 @@ func downloadFileURL(ctx context.Context, url string) ([]byte, error) {
 	return data, nil
 }
 
-// sendTorrentPage fetches one page of torrents and sends it to the chat.
-// On success the message includes a pagination keyboard.
+// sendTorrentPage fetches torrents and sends the requested page to the chat.
+// A single API call fetches all matching torrents; paging is done in Go.
 func (h *Handler) sendTorrentPage(ctx context.Context, chatID int64, filter qbt.TorrentFilter, page int) {
-	// Fetch the page of torrents.
-	offset := (page - 1) * formatter.TorrentsPerPage
-	torrents, err := h.qbt.ListTorrents(ctx, qbt.ListOptions{
-		Filter: filter,
-		Limit:  formatter.TorrentsPerPage,
-		Offset: offset,
-	})
+	all, err := h.qbt.ListTorrents(ctx, qbt.ListOptions{Filter: filter})
 	if err != nil {
 		h.replyText(chatID, fmt.Sprintf("Error fetching torrents: %v", err))
 		return
 	}
 
-	// Determine total pages by fetching all (no limit) — count only.
-	// We need total count; fetch all with no limit and count.
-	all, err := h.qbt.ListTorrents(ctx, qbt.ListOptions{Filter: filter})
-	if err != nil {
-		h.replyText(chatID, fmt.Sprintf("Error fetching torrent count: %v", err))
-		return
-	}
-
 	totalPages := formatter.TotalPages(len(all), formatter.TorrentsPerPage)
+	offset := (page - 1) * formatter.TorrentsPerPage
+	end := offset + formatter.TorrentsPerPage
+	if end > len(all) {
+		end = len(all)
+	}
+	var torrents []qbt.Torrent
+	if offset < len(all) {
+		torrents = all[offset:end]
+	}
 	text := formatter.FormatTorrentList(torrents, page, totalPages)
 
 	filterPrefix := "all"

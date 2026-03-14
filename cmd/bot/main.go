@@ -55,17 +55,16 @@ func main() {
 	}
 	log.Printf("Connected to qBittorrent at %s", cfg.QBTBaseURL)
 
-	// 4. Create the bot handler.
-	// *tgbotapi.BotAPI satisfies bot.Sender: it has Send(Chattable) and GetFile(FileConfig).
-	auth := bot.NewAuthorizer(cfg.AllowedUsers)
-	handler := bot.New(botAPI, qbtClient, auth, cfg.TelegramToken)
-
-	// 5. Create the completion notifier.
-	notifier := &telegramNotifier{bot: botAPI}
-
-	// 6. Set up a root context with graceful cancellation.
+	// 4. Set up a root context with graceful cancellation.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// 5. Create the bot handler (passes ctx for cleanup goroutine shutdown).
+	auth := bot.NewAuthorizer(cfg.AllowedUsers)
+	handler := bot.New(botAPI, qbtClient, auth, cfg.TelegramToken, ctx)
+
+	// 6. Create the completion notifier.
+	notifier := &telegramNotifier{bot: botAPI}
 
 	// 7. Start the completion poller in the background.
 	p := poller.New(qbtClient, notifier, cfg.PollInterval, cfg.AllowedUsers)
