@@ -747,6 +747,160 @@ func TestE2E_UploadingPaginationCallback(t *testing.T) {
 	}
 }
 
+// TestE2E_RemoveTorrent verifies the full remove flow against a real
+// qBittorrent instance: add a torrent, open its detail view, press Remove to
+// see the confirmation, then confirm "Remove torrent only" (deleteFiles=false),
+// and verify the torrent disappears from subsequent ListTorrents responses.
+// This covers CHECK-1 (AC-3.1, AC-5.1) and demonstrates that the bot-level
+// remove callbacks route correctly end-to-end.
+func TestE2E_RemoveTorrent(t *testing.T) {
+	const (
+		chatID = int64(1013)
+		userID = int64(1013)
+	)
+
+	ctx := context.Background()
+	qbtClient := getQBTClient(t)
+
+	// Add a torrent to have something to remove.
+	if err := qbtClient.AddMagnet(ctx, ubuntuMagnet, ""); err != nil {
+		t.Logf("AddMagnet (pre-seed): %v", err)
+	}
+	time.Sleep(2 * time.Second)
+
+	torrents, err := qbtClient.ListTorrents(ctx, qbt.ListOptions{Filter: qbt.FilterAll})
+	if err != nil {
+		t.Fatalf("ListTorrents() error = %v", err)
+	}
+	if len(torrents) == 0 {
+		t.Skip("no torrents available for remove test")
+	}
+	hash := torrents[0].Hash
+
+	sender := &mockSender{}
+	auth := NewAuthorizer([]int64{userID})
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+
+	// Step 1: rm: shows the confirmation view (non-destructive, AC-2.2).
+	sender.sentMessages = nil
+	rmCallback := newCallbackUpdate(chatID, "cb-rm-e2e", "rm:a:1:"+hash)
+	h.HandleUpdate(ctx, rmCallback)
+
+	if !sender.hasEditText("Remove") {
+		t.Fatalf("expected confirmation view after rm: callback, got edits: %v", sender.editTexts())
+	}
+
+	// Verify no deletion occurred yet (AC-2.2).
+	afterConfirm, err := qbtClient.ListTorrents(ctx, qbt.ListOptions{Filter: qbt.FilterAll})
+	if err != nil {
+		t.Fatalf("ListTorrents after confirm view: %v", err)
+	}
+	foundAfterConfirm := false
+	for _, tor := range afterConfirm {
+		if tor.Hash == hash {
+			foundAfterConfirm = true
+			break
+		}
+	}
+	if !foundAfterConfirm {
+		t.Error("torrent should still exist after viewing confirmation prompt (non-destructive)")
+	}
+
+	// Step 2: rd: confirms remove-torrent-only (deleteFiles=false), AC-3.1.
+	sender.sentMessages = nil
+	rdCallback := newCallbackUpdate(chatID, "cb-rd-e2e", "rd:a:1:"+hash)
+	h.HandleUpdate(ctx, rdCallback)
+
+	// Callback must be answered with "Removed." (AC-5.1).
+	removed := false
+	for _, msg := range sender.sentMessages {
+		if ca, ok := msg.(tgbotapi.CallbackConfig); ok {
+			if ca.Text == "Removed." {
+				removed = true
+			}
+		}
+	}
+	if !removed {
+		t.Fatalf("expected 'Removed.' callback answer after rd:, got messages: %v", sender.sentMessages)
+	}
+
+	// AC-5.1: the message is edited to show the list view.
+	if !sender.hasEditText("page 1/") && !sender.hasEditText("No torrents found") {
+		t.Fatalf("expected list view after removal, got edits: %v", sender.editTexts())
+	}
+
+	// AC-3.1: give qBittorrent a moment to process the deletion, then verify.
+	time.Sleep(2 * time.Second)
+	afterDelete, err := qbtClient.ListTorrents(ctx, qbt.ListOptions{Filter: qbt.FilterAll})
+	if err != nil {
+		t.Fatalf("ListTorrents after delete: %v", err)
+	}
+	for _, tor := range afterDelete {
+		if tor.Hash == hash {
+			t.Errorf("torrent %s should have been removed from qBittorrent list", hash)
+		}
+	}
+}
+
+// TestE2E_RemoveCancelReturnsToDetail verifies that the rc: (cancel) callback
+// navigates back to the torrent detail view without deleting the torrent.
+// Covers AC-6.1 and AC-6.2.
+func TestE2E_RemoveCancelReturnsToDetail(t *testing.T) {
+	const (
+		chatID = int64(1014)
+		userID = int64(1014)
+	)
+
+	ctx := context.Background()
+	qbtClient := getQBTClient(t)
+
+	// Ensure at least one torrent exists.
+	if err := qbtClient.AddMagnet(ctx, ubuntuMagnet, ""); err != nil {
+		t.Logf("AddMagnet (pre-seed): %v", err)
+	}
+	time.Sleep(2 * time.Second)
+
+	torrents, err := qbtClient.ListTorrents(ctx, qbt.ListOptions{Filter: qbt.FilterAll})
+	if err != nil {
+		t.Fatalf("ListTorrents() error = %v", err)
+	}
+	if len(torrents) == 0 {
+		t.Skip("no torrents available for cancel test")
+	}
+	hash := torrents[0].Hash
+
+	sender := &mockSender{}
+	auth := NewAuthorizer([]int64{userID})
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+
+	// rc: should return to the detail view (AC-6.1).
+	rcCallback := newCallbackUpdate(chatID, "cb-rc-e2e", "rc:a:1:"+hash)
+	h.HandleUpdate(ctx, rcCallback)
+
+	if !sender.hasEditText("Size:") {
+		t.Fatalf("expected detail view with Size: field after cancel, got edits: %v", sender.editTexts())
+	}
+	if !sender.hasEditText("State:") {
+		t.Fatalf("expected detail view with State: field after cancel, got edits: %v", sender.editTexts())
+	}
+
+	// AC-6.2: torrent must still be present (no deletion occurred).
+	afterCancel, err := qbtClient.ListTorrents(ctx, qbt.ListOptions{Filter: qbt.FilterAll})
+	if err != nil {
+		t.Fatalf("ListTorrents after cancel: %v", err)
+	}
+	found := false
+	for _, tor := range afterCancel {
+		if tor.Hash == hash {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("torrent %s should still exist after cancel (AC-6.2)", hash)
+	}
+}
+
 // TestE2E_ActiveCommandShowsDownloading verifies that /active returns a valid
 // response even when no torrents are currently active.
 func TestE2E_ActiveCommandShowsDownloading(t *testing.T) {

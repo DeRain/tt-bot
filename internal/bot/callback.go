@@ -146,6 +146,18 @@ func (h *Handler) handleCallback(ctx context.Context, cq *tgbotapi.CallbackQuery
 	case strings.HasPrefix(data, "bk:"):
 		h.handleBackCallback(ctx, cq, strings.TrimPrefix(data, "bk:"))
 
+	case strings.HasPrefix(data, "rm:"):
+		h.handleRemoveConfirmCallback(ctx, cq, strings.TrimPrefix(data, "rm:"))
+
+	case strings.HasPrefix(data, "rd:"):
+		h.handleRemoveDeleteCallback(ctx, cq, strings.TrimPrefix(data, "rd:"), false)
+
+	case strings.HasPrefix(data, "rf:"):
+		h.handleRemoveDeleteCallback(ctx, cq, strings.TrimPrefix(data, "rf:"), true)
+
+	case strings.HasPrefix(data, "rc:"):
+		h.handleRemoveCancelCallback(ctx, cq, strings.TrimPrefix(data, "rc:"))
+
 	case data == "noop":
 		// Page indicator button — dismiss spinner, do nothing.
 		h.answerCallback(cq.ID, "")
@@ -403,4 +415,124 @@ func (h *Handler) handleBackCallback(ctx context.Context, cq *tgbotapi.CallbackQ
 	tgKB := toTGKeyboard(kb)
 	h.answerCallback(cq.ID, "")
 	h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &tgKB)
+}
+
+// handleRemoveConfirmCallback shows the confirmation view when the Remove button is pressed.
+// It parses rm:<filterChar>:<page>:<hash>, fetches the torrent name, and renders
+// the confirmation message with RemoveConfirmKeyboard. No qBittorrent mutation occurs.
+func (h *Handler) handleRemoveConfirmCallback(ctx context.Context, cq *tgbotapi.CallbackQuery, data string) {
+	filterChar, page, hash, err := parseControlCallback(data)
+	if err != nil {
+		h.answerCallback(cq.ID, "Invalid action.")
+		return
+	}
+
+	filter, ok := filterCharToFilter(filterChar)
+	if !ok {
+		h.answerCallback(cq.ID, "Invalid filter.")
+		return
+	}
+
+	all, err := h.listTorrentsForFilter(ctx, filter)
+	if err != nil {
+		h.answerCallback(cq.ID, fmt.Sprintf("Error: %v", err))
+		return
+	}
+
+	torrent, found := findTorrentByHash(all, hash)
+	if !found {
+		// Torrent disappeared between list view and clicking Remove; go back to list.
+		filterPrefix := filterCharToPrefix(filterChar)
+		text, kb, listErr := h.renderTorrentListPage(ctx, filter, filterPrefix, page)
+		if listErr != nil {
+			h.answerCallback(cq.ID, "Torrent not found.")
+			return
+		}
+		tgKB := toTGKeyboard(kb)
+		h.answerCallback(cq.ID, "Torrent not found.")
+		h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &tgKB)
+		return
+	}
+
+	text := formatter.FormatRemoveConfirmation(torrent.Name)
+	kb := toTGKeyboard(formatter.RemoveConfirmKeyboard(hash, filterChar, page))
+
+	h.answerCallback(cq.ID, "")
+	h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &kb)
+}
+
+// handleRemoveDeleteCallback handles both rd: (deleteFiles=false) and rf: (deleteFiles=true).
+// It calls DeleteTorrents then navigates back to the torrent list at the original filter/page.
+func (h *Handler) handleRemoveDeleteCallback(ctx context.Context, cq *tgbotapi.CallbackQuery, data string, deleteFiles bool) {
+	filterChar, page, hash, err := parseControlCallback(data)
+	if err != nil {
+		h.answerCallback(cq.ID, "Invalid action.")
+		return
+	}
+
+	filter, ok := filterCharToFilter(filterChar)
+	if !ok {
+		h.answerCallback(cq.ID, "Invalid filter.")
+		return
+	}
+
+	if err := h.qbt.DeleteTorrents(ctx, []string{hash}, deleteFiles); err != nil {
+		h.answerCallback(cq.ID, fmt.Sprintf("Error: %v", err))
+		return
+	}
+
+	filterPrefix := filterCharToPrefix(filterChar)
+	text, kb, listErr := h.renderTorrentListPage(ctx, filter, filterPrefix, page)
+	if listErr != nil {
+		h.answerCallback(cq.ID, "Removed.")
+		h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, "Removed.", nil)
+		return
+	}
+
+	tgKB := toTGKeyboard(kb)
+	h.answerCallback(cq.ID, "Removed.")
+	h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &tgKB)
+}
+
+// handleRemoveCancelCallback handles rc: by returning to the torrent detail view.
+// It parses rc:<filterChar>:<page>:<hash>, re-fetches the torrent, and renders the detail view.
+func (h *Handler) handleRemoveCancelCallback(ctx context.Context, cq *tgbotapi.CallbackQuery, data string) {
+	filterChar, page, hash, err := parseControlCallback(data)
+	if err != nil {
+		h.answerCallback(cq.ID, "Invalid action.")
+		return
+	}
+
+	filter, ok := filterCharToFilter(filterChar)
+	if !ok {
+		h.answerCallback(cq.ID, "Invalid filter.")
+		return
+	}
+
+	all, err := h.listTorrentsForFilter(ctx, filter)
+	if err != nil {
+		h.answerCallback(cq.ID, fmt.Sprintf("Error: %v", err))
+		return
+	}
+
+	torrent, found := findTorrentByHash(all, hash)
+	if !found {
+		// Torrent disappeared; navigate to list.
+		filterPrefix := filterCharToPrefix(filterChar)
+		text, kb, listErr := h.renderTorrentListPage(ctx, filter, filterPrefix, page)
+		if listErr != nil {
+			h.answerCallback(cq.ID, "Torrent not found.")
+			return
+		}
+		tgKB := toTGKeyboard(kb)
+		h.answerCallback(cq.ID, "Torrent not found.")
+		h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &tgKB)
+		return
+	}
+
+	text := formatter.FormatTorrentDetail(torrent)
+	kb := toTGKeyboard(formatter.TorrentDetailKeyboard(hash, filterChar, page, torrent.State))
+
+	h.answerCallback(cq.ID, "")
+	h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &kb)
 }

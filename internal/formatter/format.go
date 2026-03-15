@@ -253,7 +253,8 @@ func FormatTorrentDetail(t qbt.Torrent) string {
 
 // TorrentDetailKeyboard builds an inline keyboard for the torrent detail view.
 // Row 1: Pause and Start buttons side by side (always both visible).
-// Row 2: Back to list button.
+// Row 2: Remove button.
+// Row 3: Back to list button.
 func TorrentDetailKeyboard(hash, filterChar string, page int, _ string) Keyboard {
 	pauseBtn := Button{
 		Text:         "⏸ Pause",
@@ -263,6 +264,10 @@ func TorrentDetailKeyboard(hash, filterChar string, page int, _ string) Keyboard
 		Text:         "▶️ Start",
 		CallbackData: fmt.Sprintf("re:%s:%d:%s", filterChar, page, hash),
 	}
+	removeBtn := Button{
+		Text:         "🗑 Remove",
+		CallbackData: fmt.Sprintf("rm:%s:%d:%s", filterChar, page, hash),
+	}
 	backBtn := Button{
 		Text:         "⬅️ Back to list",
 		CallbackData: fmt.Sprintf("bk:%s:%d", filterChar, page),
@@ -270,7 +275,39 @@ func TorrentDetailKeyboard(hash, filterChar string, page int, _ string) Keyboard
 
 	return Keyboard{
 		ButtonRow{pauseBtn, startBtn},
+		ButtonRow{removeBtn},
 		ButtonRow{backBtn},
+	}
+}
+
+// FormatRemoveConfirmation builds a confirmation prompt for torrent removal.
+// It includes the torrent name so the user can confirm they are removing the right torrent.
+func FormatRemoveConfirmation(torrentName string) string {
+	return fmt.Sprintf("Remove torrent?\n\n%s\n\nChoose an action:", torrentName)
+}
+
+// RemoveConfirmKeyboard builds the confirmation keyboard shown after the Remove button is pressed.
+// Row 1: Remove torrent only (rd:).
+// Row 2: Remove with files (rf:).
+// Row 3: Cancel (rc:).
+func RemoveConfirmKeyboard(hash, filterChar string, page int) Keyboard {
+	removeOnlyBtn := Button{
+		Text:         "🗑 Remove torrent only",
+		CallbackData: fmt.Sprintf("rd:%s:%d:%s", filterChar, page, hash),
+	}
+	removeFilesBtn := Button{
+		Text:         "🗑 Remove with files",
+		CallbackData: fmt.Sprintf("rf:%s:%d:%s", filterChar, page, hash),
+	}
+	cancelBtn := Button{
+		Text:         "❌ Cancel",
+		CallbackData: fmt.Sprintf("rc:%s:%d:%s", filterChar, page, hash),
+	}
+
+	return Keyboard{
+		ButtonRow{removeOnlyBtn},
+		ButtonRow{removeFilesBtn},
+		ButtonRow{cancelBtn},
 	}
 }
 

@@ -78,6 +78,9 @@ type mockQBTClient struct {
 	resumedHashes []string
 	pauseErr      error
 	resumeErr     error
+	deleteErr     error
+	deletedHashes []string
+	deletedFiles  bool
 }
 
 func (m *mockQBTClient) Login(_ context.Context) error { return m.loginErr }
@@ -126,6 +129,15 @@ func (m *mockQBTClient) ResumeTorrents(_ context.Context, hashes []string) error
 		return m.resumeErr
 	}
 	m.resumedHashes = append(m.resumedHashes, hashes...)
+	return nil
+}
+
+func (m *mockQBTClient) DeleteTorrents(_ context.Context, hashes []string, deleteFiles bool) error {
+	if m.deleteErr != nil {
+		return m.deleteErr
+	}
+	m.deletedHashes = append(m.deletedHashes, hashes...)
+	m.deletedFiles = deleteFiles
 	return nil
 }
 

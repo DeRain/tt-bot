@@ -435,6 +435,94 @@ func TestResumeTorrents_ErrorOnNon200(t *testing.T) {
 	}
 }
 
+// --- DeleteTorrents tests (TEST-2: TASK-2) -----------------------------------
+
+func TestDeleteTorrents_SendsCorrectForm_NoDeleteFiles(t *testing.T) {
+	const sid = "sid-del"
+	var gotBody string
+	var gotMethod string
+	var gotPath string
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/auth/login", loginHandler(sid))
+	mux.HandleFunc("/api/v2/torrents/delete", func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		body, _ := io.ReadAll(r.Body)
+		gotBody = string(body)
+		w.WriteHeader(http.StatusOK)
+	})
+
+	_, client := newTestServer(t, mux)
+	_ = client.Login(context.Background())
+
+	hashes := []string{"abc123", "def456"}
+	if err := client.DeleteTorrents(context.Background(), hashes, false); err != nil {
+		t.Fatalf("DeleteTorrents() error = %v", err)
+	}
+
+	if gotMethod != http.MethodPost {
+		t.Errorf("method = %q, want POST", gotMethod)
+	}
+	if gotPath != "/api/v2/torrents/delete" {
+		t.Errorf("path = %q, want /api/v2/torrents/delete", gotPath)
+	}
+
+	parsed, _ := url.ParseQuery(gotBody)
+	if got := parsed.Get("hashes"); got != "abc123|def456" {
+		t.Errorf("hashes = %q, want %q", got, "abc123|def456")
+	}
+	if got := parsed.Get("deleteFiles"); got != "false" {
+		t.Errorf("deleteFiles = %q, want %q", got, "false")
+	}
+}
+
+func TestDeleteTorrents_SendsCorrectForm_WithDeleteFiles(t *testing.T) {
+	const sid = "sid-del-files"
+	var gotBody string
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/auth/login", loginHandler(sid))
+	mux.HandleFunc("/api/v2/torrents/delete", func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		gotBody = string(body)
+		w.WriteHeader(http.StatusOK)
+	})
+
+	_, client := newTestServer(t, mux)
+	_ = client.Login(context.Background())
+
+	if err := client.DeleteTorrents(context.Background(), []string{"xyz789"}, true); err != nil {
+		t.Fatalf("DeleteTorrents() error = %v", err)
+	}
+
+	parsed, _ := url.ParseQuery(gotBody)
+	if got := parsed.Get("deleteFiles"); got != "true" {
+		t.Errorf("deleteFiles = %q, want %q", got, "true")
+	}
+	if got := parsed.Get("hashes"); got != "xyz789" {
+		t.Errorf("hashes = %q, want %q", got, "xyz789")
+	}
+}
+
+func TestDeleteTorrents_ErrorOnNon200(t *testing.T) {
+	const sid = "sid-del-err"
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/auth/login", loginHandler(sid))
+	mux.HandleFunc("/api/v2/torrents/delete", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+
+	_, client := newTestServer(t, mux)
+	_ = client.Login(context.Background())
+
+	err := client.DeleteTorrents(context.Background(), []string{"hash1"}, false)
+	if err == nil {
+		t.Fatal("expected error for non-200 response")
+	}
+}
+
 // --- Auto re-auth tests -----------------------------------------------------
 
 func TestAutoReauth_On403(t *testing.T) {

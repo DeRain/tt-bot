@@ -2,6 +2,7 @@ package bot
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -532,6 +533,317 @@ func TestCallback_PaginationUploading_FetchesCorrectPage(t *testing.T) {
 		t.Fatalf("expected page 2/2 in edited message, got edits: %v", sender.editTexts())
 	}
 }
+
+// ---------------------------------------------------------------------------
+// handleRemoveConfirmCallback tests (TEST-7, AC-2.1, AC-2.2)
+// ---------------------------------------------------------------------------
+
+func TestCallback_RemoveConfirm_ShowsConfirmationView(t *testing.T) {
+	sender := &mockSender{}
+	hash := strings.Repeat("a", 40)
+	qbtClient := &mockQBTClient{
+		torrents: []qbt.Torrent{
+			{Hash: hash, Name: "Ubuntu 24.04", State: "downloading"},
+		},
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+
+	update := newCallbackUpdate(1, "cb-rm", "rm:a:1:"+hash)
+	h.HandleUpdate(context.Background(), update)
+
+	// AC-2.1: Confirmation view contains torrent name.
+	if !sender.hasEditText("Ubuntu 24.04") {
+		t.Fatalf("expected torrent name in confirmation view, got edits: %v", sender.editTexts())
+	}
+	if !sender.hasEditText("Remove") {
+		t.Fatalf("expected 'Remove' in confirmation view, got edits: %v", sender.editTexts())
+	}
+
+	// AC-2.2: no DeleteTorrents call should have been made (non-destructive).
+	if len(qbtClient.deletedHashes) != 0 {
+		t.Fatalf("expected no DeleteTorrents call on confirm view, got %v", qbtClient.deletedHashes)
+	}
+}
+
+func TestCallback_RemoveConfirm_TorrentNotFound_NavigatesToList(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{torrents: []qbt.Torrent{}}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+
+	hash := strings.Repeat("b", 40)
+	update := newCallbackUpdate(1, "cb-rm-nf", "rm:a:1:"+hash)
+	h.HandleUpdate(context.Background(), update)
+
+	found := false
+	for _, msg := range sender.sentMessages {
+		if ca, ok := msg.(tgbotapi.CallbackConfig); ok {
+			if strings.Contains(ca.Text, "not found") {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Fatal("expected 'not found' callback answer when torrent missing on remove confirm")
+	}
+}
+
+func TestCallback_RemoveConfirm_InvalidFormat(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+
+	update := newCallbackUpdate(1, "cb-rm-bad", "rm:invalid")
+	h.HandleUpdate(context.Background(), update)
+
+	found := false
+	for _, msg := range sender.sentMessages {
+		if ca, ok := msg.(tgbotapi.CallbackConfig); ok {
+			if strings.Contains(ca.Text, "Invalid") {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Fatal("expected 'Invalid' callback answer for malformed rm:")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// handleRemoveDeleteCallback tests (TEST-8, AC-3.1, AC-4.1, AC-5.1, AC-5.2)
+// ---------------------------------------------------------------------------
+
+func TestCallback_RemoveDelete_NoFiles_CallsDeleteAndNavigatesToList(t *testing.T) {
+	sender := &mockSender{}
+	hash := strings.Repeat("c", 40)
+	qbtClient := &mockQBTClient{
+		torrents: []qbt.Torrent{
+			{Hash: "other", Name: "Remaining Torrent"},
+		},
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+
+	update := newCallbackUpdate(1, "cb-rd", "rd:a:1:"+hash)
+	h.HandleUpdate(context.Background(), update)
+
+	// AC-3.1: DeleteTorrents called with deleteFiles=false.
+	if len(qbtClient.deletedHashes) != 1 || qbtClient.deletedHashes[0] != hash {
+		t.Fatalf("expected DeleteTorrents(%s, false), got hashes=%v", hash, qbtClient.deletedHashes)
+	}
+	if qbtClient.deletedFiles {
+		t.Error("expected deleteFiles=false for rd: callback")
+	}
+
+	// AC-5.1: navigates back to the list view.
+	if !sender.hasEditText("page 1/") {
+		t.Fatalf("expected list view after removal, got edits: %v", sender.editTexts())
+	}
+}
+
+func TestCallback_RemoveDelete_WithFiles_CallsDeleteWithFilesTrue(t *testing.T) {
+	sender := &mockSender{}
+	hash := strings.Repeat("d", 40)
+	qbtClient := &mockQBTClient{
+		torrents: []qbt.Torrent{
+			{Hash: hash, Name: "To Remove"},
+		},
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+
+	update := newCallbackUpdate(1, "cb-rf", "rf:a:1:"+hash)
+	h.HandleUpdate(context.Background(), update)
+
+	// AC-4.1: DeleteTorrents called with deleteFiles=true.
+	if len(qbtClient.deletedHashes) != 1 || qbtClient.deletedHashes[0] != hash {
+		t.Fatalf("expected DeleteTorrents(%s, true), got hashes=%v", hash, qbtClient.deletedHashes)
+	}
+	if !qbtClient.deletedFiles {
+		t.Error("expected deleteFiles=true for rf: callback")
+	}
+}
+
+func TestCallback_RemoveDelete_EmptyListAfterDeletion_ShowsEmptyListMessage(t *testing.T) {
+	sender := &mockSender{}
+	hash := strings.Repeat("e", 40)
+	qbtClient := &mockQBTClient{
+		torrents: []qbt.Torrent{}, // list is empty after deletion
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+
+	update := newCallbackUpdate(1, "cb-rd-empty", "rd:a:1:"+hash)
+	h.HandleUpdate(context.Background(), update)
+
+	// AC-5.2: empty list shows the empty-list message, not an error.
+	if !sender.hasEditText("No torrents found") {
+		t.Fatalf("expected empty list message after last torrent removed, got edits: %v", sender.editTexts())
+	}
+}
+
+func TestCallback_RemoveDelete_DeleteError_AnswersWithError(t *testing.T) {
+	sender := &mockSender{}
+	hash := strings.Repeat("f", 40)
+	qbtClient := &mockQBTClient{
+		deleteErr: fmt.Errorf("qbt unavailable"),
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+
+	update := newCallbackUpdate(1, "cb-rd-err", "rd:a:1:"+hash)
+	h.HandleUpdate(context.Background(), update)
+
+	found := false
+	for _, msg := range sender.sentMessages {
+		if ca, ok := msg.(tgbotapi.CallbackConfig); ok {
+			if strings.Contains(ca.Text, "Error") {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Fatal("expected error callback answer when DeleteTorrents fails")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// handleRemoveCancelCallback tests (TEST-9, AC-6.1, AC-6.2)
+// ---------------------------------------------------------------------------
+
+func TestCallback_RemoveCancel_ReturnsToDetailView(t *testing.T) {
+	sender := &mockSender{}
+	hash := strings.Repeat("a", 40)
+	qbtClient := &mockQBTClient{
+		torrents: []qbt.Torrent{
+			{Hash: hash, Name: "Ubuntu 24.04", State: "downloading"},
+		},
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+
+	update := newCallbackUpdate(1, "cb-rc", "rc:a:1:"+hash)
+	h.HandleUpdate(context.Background(), update)
+
+	// AC-6.1: navigates back to the detail view for the same torrent.
+	if !sender.hasEditText("Ubuntu 24.04") {
+		t.Fatalf("expected torrent detail view after cancel, got edits: %v", sender.editTexts())
+	}
+	if !sender.hasEditText("Size:") {
+		t.Fatalf("expected detail fields (Size:) after cancel, got edits: %v", sender.editTexts())
+	}
+
+	// AC-6.2: no DeleteTorrents call should have been made.
+	if len(qbtClient.deletedHashes) != 0 {
+		t.Fatalf("expected no DeleteTorrents call on cancel, got %v", qbtClient.deletedHashes)
+	}
+}
+
+func TestCallback_RemoveCancel_TorrentNotFound_NavigatesToList(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{torrents: []qbt.Torrent{}}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+
+	hash := strings.Repeat("b", 40)
+	update := newCallbackUpdate(1, "cb-rc-nf", "rc:a:1:"+hash)
+	h.HandleUpdate(context.Background(), update)
+
+	found := false
+	for _, msg := range sender.sentMessages {
+		if ca, ok := msg.(tgbotapi.CallbackConfig); ok {
+			if strings.Contains(ca.Text, "not found") {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Fatal("expected 'not found' callback answer when torrent missing on cancel")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Callback routing tests (TEST-10, AC-1.1, AC-2.1, AC-5.1, AC-6.1)
+// ---------------------------------------------------------------------------
+
+func TestCallback_RemovePrefixesRoutedCorrectly(t *testing.T) {
+	hash := strings.Repeat("a", 40)
+
+	tests := []struct {
+		name     string
+		data     string
+		wantEdit string
+	}{
+		{
+			name:     "rm: shows confirmation",
+			data:     "rm:a:1:" + hash,
+			wantEdit: "Remove torrent?",
+		},
+		{
+			name:     "rc: returns to detail",
+			data:     "rc:a:1:" + hash,
+			wantEdit: "Size:",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sender := &mockSender{}
+			qbtClient := &mockQBTClient{
+				torrents: []qbt.Torrent{
+					{Hash: hash, Name: "Test Torrent", State: "downloading", Size: 1024},
+				},
+			}
+			auth := NewAuthorizer([]int64{1})
+			h := New(context.Background(), sender, qbtClient, auth, "test-token")
+
+			update := newCallbackUpdate(1, "cb-route", tt.data)
+			h.HandleUpdate(context.Background(), update)
+
+			if !sender.hasEditText(tt.wantEdit) {
+				t.Errorf("data=%q: expected edit containing %q, got edits: %v", tt.data, tt.wantEdit, sender.editTexts())
+			}
+		})
+	}
+}
+
+func TestCallback_RemoveDelete_Routing_BothPrefixes(t *testing.T) {
+	hash := strings.Repeat("d", 40)
+
+	tests := []struct {
+		name            string
+		data            string
+		wantDeleteFiles bool
+	}{
+		{"rd: deleteFiles=false", "rd:a:1:" + hash, false},
+		{"rf: deleteFiles=true", "rf:a:1:" + hash, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sender := &mockSender{}
+			qbtClient := &mockQBTClient{
+				torrents: []qbt.Torrent{},
+			}
+			auth := NewAuthorizer([]int64{1})
+			h := New(context.Background(), sender, qbtClient, auth, "test-token")
+
+			update := newCallbackUpdate(1, "cb-del-route", tt.data)
+			h.HandleUpdate(context.Background(), update)
+
+			if len(qbtClient.deletedHashes) != 1 {
+				t.Fatalf("expected 1 delete call, got %d", len(qbtClient.deletedHashes))
+			}
+			if qbtClient.deletedFiles != tt.wantDeleteFiles {
+				t.Errorf("deleteFiles = %v, want %v", qbtClient.deletedFiles, tt.wantDeleteFiles)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
 
 func TestCallback_CategoryWithNoCategory_ShowsGenericConfirm(t *testing.T) {
 	sender := &mockSender{}

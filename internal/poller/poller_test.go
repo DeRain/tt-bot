@@ -45,8 +45,9 @@ func (m *mockQBT) Categories(_ context.Context) ([]qbt.Category, error) {
 	return nil, nil
 }
 
-func (m *mockQBT) PauseTorrents(_ context.Context, _ []string) error  { return nil }
-func (m *mockQBT) ResumeTorrents(_ context.Context, _ []string) error { return nil }
+func (m *mockQBT) PauseTorrents(_ context.Context, _ []string) error          { return nil }
+func (m *mockQBT) ResumeTorrents(_ context.Context, _ []string) error         { return nil }
+func (m *mockQBT) DeleteTorrents(_ context.Context, _ []string, _ bool) error { return nil }
 
 // notification captures a single call to NotifyCompletion.
 type notification struct {

@@ -32,4 +32,8 @@ type Client interface {
 
 	// ResumeTorrents resumes one or more torrents identified by info-hash.
 	ResumeTorrents(ctx context.Context, hashes []string) error
+
+	// DeleteTorrents removes one or more torrents identified by info-hash.
+	// If deleteFiles is true, the associated downloaded data is also deleted from disk.
+	DeleteTorrents(ctx context.Context, hashes []string, deleteFiles bool) error
 }

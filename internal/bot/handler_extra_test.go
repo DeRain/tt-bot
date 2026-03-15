@@ -268,5 +268,6 @@ func (e *errorQBTClient) ListTorrents(_ context.Context, _ qbt.ListOptions) ([]q
 func (e *errorQBTClient) Categories(_ context.Context) ([]qbt.Category, error) {
 	return nil, nil
 }
-func (e *errorQBTClient) PauseTorrents(_ context.Context, _ []string) error  { return nil }
-func (e *errorQBTClient) ResumeTorrents(_ context.Context, _ []string) error { return nil }
+func (e *errorQBTClient) PauseTorrents(_ context.Context, _ []string) error          { return nil }
+func (e *errorQBTClient) ResumeTorrents(_ context.Context, _ []string) error         { return nil }
+func (e *errorQBTClient) DeleteTorrents(_ context.Context, _ []string, _ bool) error { return nil }
