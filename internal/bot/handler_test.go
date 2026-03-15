@@ -4,7 +4,9 @@ import (
 	"context"
 	"io"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
@@ -88,6 +90,8 @@ type mockQBTClient struct {
 	setFilePriorityErr error
 	// setPriorityRecords tracks calls made to SetFilePriority.
 	setPriorityRecords []setPriorityCall
+
+	mu sync.Mutex
 }
 
 // setPriorityCall records a single call to SetFilePriority.
@@ -113,7 +117,10 @@ func (m *mockQBTClient) AddTorrentFile(_ context.Context, filename string, _ io.
 }
 
 func (m *mockQBTClient) ListTorrents(_ context.Context, opts qbt.ListOptions) ([]qbt.Torrent, error) {
-	torrents := m.torrents
+	m.mu.Lock()
+	torrents := make([]qbt.Torrent, len(m.torrents))
+	copy(torrents, m.torrents)
+	m.mu.Unlock()
 
 	// Apply offset and limit for pagination simulation.
 	if opts.Offset > len(torrents) {
@@ -135,6 +142,19 @@ func (m *mockQBTClient) PauseTorrents(_ context.Context, hashes []string) error 
 		return m.pauseErr
 	}
 	m.pausedHashes = append(m.pausedHashes, hashes...)
+	// Simulate state transition after a short delay.
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		for i, t := range m.torrents {
+			for _, h := range hashes {
+				if t.Hash == h {
+					m.torrents[i].State = "stoppedDL"
+				}
+			}
+		}
+	}()
 	return nil
 }
 
@@ -143,6 +163,19 @@ func (m *mockQBTClient) ResumeTorrents(_ context.Context, hashes []string) error
 		return m.resumeErr
 	}
 	m.resumedHashes = append(m.resumedHashes, hashes...)
+	// Simulate state transition after a short delay.
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		for i, t := range m.torrents {
+			for _, h := range hashes {
+				if t.Hash == h {
+					m.torrents[i].State = "downloading"
+				}
+			}
+		}
+	}()
 	return nil
 }
 

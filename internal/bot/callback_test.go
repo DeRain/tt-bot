@@ -277,6 +277,10 @@ func TestCallback_Pause_CallsPauseAndRefreshes(t *testing.T) {
 	if !sender.hasEditText("Ubuntu") {
 		t.Fatalf("expected detail view refresh after pause")
 	}
+	// Verify the detail view shows the updated (stopped) state.
+	if !sender.hasEditText("Stopped") {
+		t.Fatalf("expected stopped state label in detail view after pause, got edits: %v", sender.editTexts())
+	}
 }
 
 func TestCallback_Resume_CallsResumeAndRefreshes(t *testing.T) {
@@ -298,6 +302,10 @@ func TestCallback_Resume_CallsResumeAndRefreshes(t *testing.T) {
 	}
 	if !sender.hasEditText("Fedora") {
 		t.Fatalf("expected detail view refresh after resume")
+	}
+	// Verify the detail view shows the updated (downloading) state.
+	if !sender.hasEditText("Downloading") {
+		t.Fatalf("expected downloading state label in detail view after resume, got edits: %v", sender.editTexts())
 	}
 }
 
@@ -1358,5 +1366,69 @@ func TestCallbackBkFL_InvalidFormat(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("expected 'Invalid' callback answer for malformed bk:fl:")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// awaitStateChange tests
+// ---------------------------------------------------------------------------
+
+func TestAwaitStateChange_DetectsChange(t *testing.T) {
+	hash := strings.Repeat("c", 40)
+	qbtClient := &mockQBTClient{
+		torrents: []qbt.Torrent{
+			{Hash: hash, Name: "Test", State: "downloading"},
+		},
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), nil, qbtClient, auth, "test-token")
+
+	// Simulate state change after 50ms.
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		qbtClient.mu.Lock()
+		qbtClient.torrents[0].State = "stoppedDL"
+		qbtClient.mu.Unlock()
+	}()
+
+	torrent, changed := h.awaitStateChange(context.Background(), hash, "downloading")
+	if !changed {
+		t.Fatal("expected state change to be detected")
+	}
+	if torrent.State != "stoppedDL" {
+		t.Fatalf("expected state stoppedDL, got %s", torrent.State)
+	}
+}
+
+func TestAwaitStateChange_ContextCanceled(t *testing.T) {
+	hash := strings.Repeat("d", 40)
+	qbtClient := &mockQBTClient{
+		torrents: []qbt.Torrent{
+			{Hash: hash, Name: "Test", State: "downloading"},
+		},
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), nil, qbtClient, auth, "test-token")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately.
+
+	_, changed := h.awaitStateChange(ctx, hash, "downloading")
+	if changed {
+		t.Fatal("expected no state change on canceled context")
+	}
+}
+
+func TestAwaitStateChange_TorrentDisappears(t *testing.T) {
+	qbtClient := &mockQBTClient{
+		torrents: []qbt.Torrent{}, // No torrents.
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), nil, qbtClient, auth, "test-token")
+
+	hash := strings.Repeat("e", 40)
+	_, changed := h.awaitStateChange(context.Background(), hash, "downloading")
+	if changed {
+		t.Fatal("expected no change when torrent is not found")
 	}
 }

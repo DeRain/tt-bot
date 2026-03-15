@@ -349,6 +349,12 @@ func TestE2E_PauseResumeTorrent(t *testing.T) {
 	if !paused {
 		t.Fatal("expected 'Paused' callback answer")
 	}
+	// Verify the detail view was refreshed after pause (the exact state depends
+	// on the test environment — Docker torrents often show "error" instead of "stopped").
+	if !sender.hasEditText("State:") {
+		t.Logf("edits after pause: %v", sender.editTexts())
+		t.Error("expected detail view refresh with State line after pause action")
+	}
 
 	// Step 2: Resume the torrent.
 	sender.sentMessages = nil

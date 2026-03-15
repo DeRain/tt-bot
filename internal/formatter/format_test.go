@@ -724,11 +724,12 @@ func TestFormatState(t *testing.T) {
 		state string
 		want  string
 	}{
-		// All 19 documented states
+		// All 21 documented states
 		{"error", "❌ Error"},
 		{"missingFiles", "⚠️ Missing Files"},
 		{"uploading", "🌱 Seeding"},
 		{"pausedUP", "⏸️ Paused (Seeding)"},
+		{"stoppedUP", "⏸️ Stopped (Seeding)"},
 		{"queuedUP", "🕐 Queued (Seeding)"},
 		{"stalledUP", "🌱 Seeding (stalled)"},
 		{"checkingUP", "🔍 Checking"},
@@ -737,6 +738,7 @@ func TestFormatState(t *testing.T) {
 		{"downloading", "⬇️ Downloading"},
 		{"metaDL", "🔎 Fetching Metadata"},
 		{"pausedDL", "⏸️ Paused (Downloading)"},
+		{"stoppedDL", "⏸️ Stopped (Downloading)"},
 		{"queuedDL", "🕐 Queued (Downloading)"},
 		{"stalledDL", "⬇️ Downloading (stalled)"},
 		{"checkingDL", "🔍 Checking"},
