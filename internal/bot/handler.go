@@ -24,7 +24,6 @@ const (
 	cleanupInterval = 1 * time.Minute
 )
 
-
 // PendingTorrent holds a torrent that the user has sent but has not yet been
 // assigned a category. It is stored in the Handler's pending map keyed by
 // chat ID and expires after pendingTTL.
@@ -69,7 +68,7 @@ func New(ctx context.Context, sender Sender, qbtClient qbt.Client, auth *Authori
 }
 
 // runCleanup periodically evicts expired pending torrent entries.
-// It returns when ctx is cancelled.
+// It returns when ctx is canceled.
 func (h *Handler) runCleanup(ctx context.Context) {
 	ticker := time.NewTicker(cleanupInterval)
 	defer ticker.Stop()
@@ -228,7 +227,7 @@ func downloadFileURL(ctx context.Context, client *http.Client, url string) ([]by
 	if err != nil {
 		return nil, fmt.Errorf("http get: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("unexpected status %d", resp.StatusCode)

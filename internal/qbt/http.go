@@ -42,7 +42,7 @@ func NewHTTPClient(baseURL, username, password string) *HTTPClient {
 }
 
 // Login authenticates with qBittorrent and stores the SID session cookie.
-// It is safe to call concurrently; the mutex serialises authentication attempts.
+// It is safe to call concurrently; the mutex serializes authentication attempts.
 func (c *HTTPClient) Login(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -68,7 +68,7 @@ func (c *HTTPClient) loginLocked(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("qbt login: request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -114,7 +114,7 @@ func (c *HTTPClient) doWithRetry(ctx context.Context, buildReq func() (*http.Req
 		return resp, nil
 	}
 	// Drain and close the 403 body before retrying.
-	resp.Body.Close() //nolint:errcheck
+	_ = resp.Body.Close()
 
 	// Re-authenticate under lock to prevent multiple simultaneous logins.
 	c.mu.Lock()
@@ -195,7 +195,7 @@ func (c *HTTPClient) AddMagnet(ctx context.Context, magnet string, category stri
 	if err != nil {
 		return fmt.Errorf("qbt add magnet: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("qbt add magnet: unexpected status %d", resp.StatusCode)
@@ -245,7 +245,7 @@ func (c *HTTPClient) AddTorrentFile(ctx context.Context, filename string, data i
 	if err != nil {
 		return fmt.Errorf("qbt add torrent file: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("qbt add torrent file: unexpected status %d", resp.StatusCode)
@@ -281,7 +281,7 @@ func (c *HTTPClient) ListTorrents(ctx context.Context, opts ListOptions) ([]Torr
 	if err != nil {
 		return nil, fmt.Errorf("qbt list torrents: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("qbt list torrents: unexpected status %d", resp.StatusCode)
@@ -314,7 +314,7 @@ func (c *HTTPClient) PauseTorrents(ctx context.Context, hashes []string) error {
 	if err != nil {
 		return fmt.Errorf("qbt pause torrents: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("qbt pause torrents: unexpected status %d", resp.StatusCode)
@@ -342,7 +342,7 @@ func (c *HTTPClient) ResumeTorrents(ctx context.Context, hashes []string) error 
 	if err != nil {
 		return fmt.Errorf("qbt resume torrents: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("qbt resume torrents: unexpected status %d", resp.StatusCode)
@@ -362,7 +362,7 @@ func (c *HTTPClient) Categories(ctx context.Context) ([]Category, error) {
 	if err != nil {
 		return nil, fmt.Errorf("qbt categories: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("qbt categories: unexpected status %d", resp.StatusCode)

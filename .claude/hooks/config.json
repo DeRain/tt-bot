@@ -1,0 +1,29 @@
+{
+  "languages": {
+    "go": true,
+    "shell": true,
+    "yaml": false,
+    "json": false,
+    "toml": false,
+    "dockerfile": true,
+    "markdown": false
+  },
+  "phases": {
+    "auto_format": true,
+    "subprocess_delegation": true
+  },
+  "subprocess": {
+    "tiers": {
+      "haiku":  { "timeout": 120, "max_turns": 10 },
+      "sonnet": { "timeout": 300, "max_turns": 10 }
+    },
+    "volume_threshold": 5
+  },
+  "protected_configs": [
+    ".golangci.yml",
+    ".golangci.yaml",
+    ".golangci.toml",
+    ".shellcheckrc",
+    ".hadolint.yaml"
+  ]
+}

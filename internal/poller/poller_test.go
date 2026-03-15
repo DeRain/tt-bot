@@ -24,14 +24,6 @@ func (m *mockQBT) setTorrents(ts []qbt.Torrent) {
 	m.torrents = ts
 }
 
-func (m *mockQBT) getTorrents() []qbt.Torrent {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	result := make([]qbt.Torrent, len(m.torrents))
-	copy(result, m.torrents)
-	return result
-}
-
 func (m *mockQBT) Login(_ context.Context) error { return nil }
 
 func (m *mockQBT) AddMagnet(_ context.Context, _ string, _ string) error { return nil }

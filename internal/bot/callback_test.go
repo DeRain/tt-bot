@@ -18,7 +18,7 @@ import (
 func newCallbackUpdate(chatID int64, callbackID, data string) tgbotapi.Update {
 	return tgbotapi.Update{
 		CallbackQuery: &tgbotapi.CallbackQuery{
-			ID: callbackID,
+			ID:   callbackID,
 			From: &tgbotapi.User{ID: chatID},
 			Message: &tgbotapi.Message{
 				MessageID: 42,

@@ -50,19 +50,6 @@ func TestEvictExpired_RemovesOldEntries(t *testing.T) {
 // handleTorrentFile via HTTP test server
 // ---------------------------------------------------------------------------
 
-func newDocumentUpdate(chatID, userID int64, fileID, fileName string) tgbotapi.Update {
-	return tgbotapi.Update{
-		Message: &tgbotapi.Message{
-			Chat: &tgbotapi.Chat{ID: chatID},
-			From: &tgbotapi.User{ID: userID},
-			Document: &tgbotapi.Document{
-				FileID:   fileID,
-				FileName: fileName,
-			},
-		},
-	}
-}
-
 func TestHandler_TorrentFile_StoresPendingAndShowsCategories(t *testing.T) {
 	// Serve fake torrent bytes.
 	fakeContent := []byte("d8:announce15:http://fake.torrent e")

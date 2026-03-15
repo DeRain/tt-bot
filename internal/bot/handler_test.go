@@ -136,9 +136,9 @@ func (m *mockQBTClient) ResumeTorrents(_ context.Context, hashes []string) error
 func newTestMessage(chatID, userID int64, text string) tgbotapi.Update {
 	return tgbotapi.Update{
 		Message: &tgbotapi.Message{
-			Chat:    &tgbotapi.Chat{ID: chatID},
-			From:    &tgbotapi.User{ID: userID},
-			Text:    text,
+			Chat:     &tgbotapi.Chat{ID: chatID},
+			From:     &tgbotapi.User{ID: userID},
+			Text:     text,
 			Entities: []tgbotapi.MessageEntity{},
 		},
 	}

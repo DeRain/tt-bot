@@ -41,7 +41,7 @@ func New(qbtClient qbt.Client, notifier Notifier, interval time.Duration, chatID
 	}
 }
 
-// Run starts the polling loop. It blocks until ctx is cancelled.
+// Run starts the polling loop. It blocks until ctx is canceled.
 // On first run it seeds knownHashes with all currently-completed torrents
 // to avoid spurious notifications on startup.
 func (p *Poller) Run(ctx context.Context) {
