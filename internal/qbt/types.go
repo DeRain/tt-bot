@@ -29,6 +29,8 @@ type Torrent struct {
 	Category     string  `json:"category"`
 	CompletionOn int64   `json:"completion_on"`
 	AddedOn      int64   `json:"added_on"`
+	Uploaded     int64   `json:"uploaded"`
+	Ratio        float64 `json:"ratio"`
 }
 
 // Category represents a torrent category configured in qBittorrent.

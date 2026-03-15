@@ -238,12 +238,14 @@ func FormatTorrentDetail(t qbt.Torrent) string {
 	}
 
 	return fmt.Sprintf(
-		"📥 %s\n\nSize: %s\nProgress: %s\nDownload: %s\nUpload: %s\nState: %s\nCategory: %s",
+		"📥 %s\n\nSize: %s\nProgress: %s\nDownload: %s\nUpload: %s\nUploaded: %s\nRatio: %.2f\nState: %s\nCategory: %s",
 		name,
 		FormatSize(t.Size),
 		FormatProgress(t.Progress),
 		FormatSpeed(t.DLSpeed),
 		FormatSpeed(t.UPSpeed),
+		FormatSize(t.Uploaded),
+		t.Ratio,
 		FormatState(t.State),
 		cat,
 	)
