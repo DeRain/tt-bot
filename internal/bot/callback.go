@@ -27,6 +27,7 @@ func (h *Handler) listTorrentsForFilter(ctx context.Context, filter qbt.TorrentF
 	case qbt.FilterDownloading:
 		filtered := make([]qbt.Torrent, 0, len(all))
 		for _, t := range all {
+			// Progress is set to exactly 1.0 by qBittorrent on completion; direct equality is safe here.
 			if t.Progress < 1.0 {
 				filtered = append(filtered, t)
 			}
@@ -35,6 +36,7 @@ func (h *Handler) listTorrentsForFilter(ctx context.Context, filter qbt.TorrentF
 	case qbt.FilterUploading:
 		filtered := make([]qbt.Torrent, 0, len(all))
 		for _, t := range all {
+			// Progress is set to exactly 1.0 by qBittorrent on completion; direct equality is safe here.
 			if t.Progress == 1.0 {
 				filtered = append(filtered, t)
 			}
