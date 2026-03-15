@@ -19,6 +19,7 @@ var BotCommands = []CommandDef{
 	{Command: "list", Description: "List all torrents (paginated)"},
 	{Command: "active", Description: "List active downloads (paginated)"},
 	{Command: "downloading", Description: "List downloading torrents (paginated)"},
+	{Command: "uploading", Description: "List uploading (seeding) torrents (paginated)"},
 	{Command: "help", Description: "Show help message"},
 }
 

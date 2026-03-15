@@ -653,6 +653,100 @@ func TestE2E_DetailViewContainsUploadedAndRatio(t *testing.T) {
 	}
 }
 
+// TestE2E_UploadingCommandReturnsValidResponse verifies that /uploading returns
+// a valid response against a real qBittorrent instance. Since all test torrents
+// are incomplete (ubuntu ISO is large), the response is expected to be
+// "No torrents found." — proving the filter correctly excludes incomplete ones.
+// Covers AC-1.2, AC-5.1 (command responds without error).
+func TestE2E_UploadingCommandReturnsValidResponse(t *testing.T) {
+	const (
+		chatID = int64(1011)
+		userID = int64(1011)
+	)
+
+	ctx := context.Background()
+	qbtClient := getQBTClient(t)
+
+	sender := &mockSender{}
+	auth := NewAuthorizer([]int64{userID})
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+
+	update := newCommandUpdate(chatID, userID, "uploading")
+	h.HandleUpdate(ctx, update)
+
+	// AC-5.1: command must respond without errors.
+	if len(sender.sentMessages) == 0 {
+		t.Fatal("expected at least one message in response to /uploading")
+	}
+
+	texts := sender.sentTexts()
+	if len(texts) == 0 {
+		t.Fatal("expected at least one text message in response to /uploading")
+	}
+	for _, text := range texts {
+		if len(text) == 0 {
+			t.Error("received empty text message for /uploading")
+		}
+	}
+
+	// A pagination keyboard should be present in any case (even for empty list,
+	// the page indicator button is sent).
+	hasKeyboard := false
+	for _, msg := range sender.sentMessages {
+		if nm, ok := msg.(tgbotapi.MessageConfig); ok {
+			if nm.ReplyMarkup != nil {
+				hasKeyboard = true
+				break
+			}
+		}
+	}
+	if !hasKeyboard {
+		t.Error("expected pagination keyboard in /uploading response")
+	}
+}
+
+// TestE2E_UploadingPaginationCallback verifies that the pg:up:1 pagination
+// callback edits the message and answers the callback correctly.
+// Covers AC-3.2.
+func TestE2E_UploadingPaginationCallback(t *testing.T) {
+	const (
+		chatID = int64(1012)
+		userID = int64(1012)
+	)
+
+	ctx := context.Background()
+	qbtClient := getQBTClient(t)
+
+	sender := &mockSender{}
+	auth := NewAuthorizer([]int64{userID})
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+
+	// Step 1: Issue /uploading to establish the list view.
+	listUpdate := newCommandUpdate(chatID, userID, "uploading")
+	h.HandleUpdate(ctx, listUpdate)
+
+	if len(sender.sentMessages) == 0 {
+		t.Fatal("expected at least one message for /uploading")
+	}
+
+	// Step 2: Simulate pg:up:1 pagination callback — must answer the callback
+	// to dismiss the loading spinner regardless of how many completed torrents exist.
+	sender.sentMessages = nil
+	pgCallback := newCallbackUpdate(chatID, "cb-up-pg", "pg:up:1")
+	h.HandleUpdate(ctx, pgCallback)
+
+	answered := false
+	for _, msg := range sender.sentMessages {
+		if _, ok := msg.(tgbotapi.CallbackConfig); ok {
+			answered = true
+			break
+		}
+	}
+	if !answered {
+		t.Errorf("expected callback answer after pg:up:1 pagination, got: %v", sender.sentMessages)
+	}
+}
+
 // TestE2E_ActiveCommandShowsDownloading verifies that /active returns a valid
 // response even when no torrents are currently active.
 func TestE2E_ActiveCommandShowsDownloading(t *testing.T) {

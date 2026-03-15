@@ -13,6 +13,10 @@ const (
 	// It is not passed to the qBittorrent API; instead, all torrents are fetched
 	// and filtered client-side.
 	FilterDownloading TorrentFilter = "downloading"
+	// FilterUploading is a virtual filter for completed torrents that are seeding
+	// or paused after completion (Progress == 1.0). It is not passed to the
+	// qBittorrent API; instead, all torrents are fetched and filtered client-side.
+	FilterUploading TorrentFilter = "uploading"
 )
 
 // Torrent represents a single torrent item as returned by the qBittorrent API.

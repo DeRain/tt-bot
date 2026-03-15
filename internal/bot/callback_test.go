@@ -480,6 +480,59 @@ func TestCallback_PaginationDownloading_FetchesCorrectPage(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// FilterUploading char mapping tests (TEST-2)
+// ---------------------------------------------------------------------------
+
+func TestFilterCharToFilter_Uploading(t *testing.T) {
+	got, ok := filterCharToFilter("u")
+	if !ok {
+		t.Fatal("filterCharToFilter('u') should return ok=true")
+	}
+	if got != qbt.FilterUploading {
+		t.Errorf("filterCharToFilter('u') = %q, want %q", got, qbt.FilterUploading)
+	}
+}
+
+func TestFilterCharToPrefix_Uploading(t *testing.T) {
+	if p := filterCharToPrefix("u"); p != "up" {
+		t.Errorf("filterCharToPrefix('u') = %q, want 'up'", p)
+	}
+}
+
+func TestFilterToChar_Uploading(t *testing.T) {
+	if c := filterToChar(qbt.FilterUploading); c != "u" {
+		t.Errorf("filterToChar(FilterUploading) = %q, want 'u'", c)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// pg:up: pagination callback (TEST-3)
+// ---------------------------------------------------------------------------
+
+func TestCallback_PaginationUploading_FetchesCorrectPage(t *testing.T) {
+	sender := &mockSender{}
+	// 6 completed torrents (Progress == 1.0), so 2 pages (5+1).
+	torrents := make([]qbt.Torrent, 6)
+	for i := range torrents {
+		torrents[i] = qbt.Torrent{
+			Hash:     "h" + string(rune('0'+i)),
+			Name:     "Seeding " + string(rune('A'+i)),
+			Progress: 1.0,
+		}
+	}
+	qbtClient := &mockQBTClient{torrents: torrents}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+
+	update := newCallbackUpdate(1, "cb-up", "pg:up:2")
+	h.HandleUpdate(context.Background(), update)
+
+	if !sender.hasEditText("page 2/2") {
+		t.Fatalf("expected page 2/2 in edited message, got edits: %v", sender.editTexts())
+	}
+}
+
 func TestCallback_CategoryWithNoCategory_ShowsGenericConfirm(t *testing.T) {
 	sender := &mockSender{}
 	qbtClient := &mockQBTClient{}

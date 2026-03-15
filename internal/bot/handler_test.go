@@ -330,6 +330,108 @@ func TestHandler_DownloadingCommand_PausedIncomplete_Appears(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// /uploading command tests (TEST-4, TEST-5)
+// ---------------------------------------------------------------------------
+
+func TestHandler_UploadingCommand_ShowsOnlyCompleted(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{
+		torrents: []qbt.Torrent{
+			{Hash: "h1", Name: "Seeding Torrent", Progress: 1.0, State: "uploading"},
+			{Hash: "h2", Name: "Incomplete Torrent", Progress: 0.5},
+		},
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+
+	update := newCommandUpdate(1, 1, "uploading")
+	h.HandleUpdate(context.Background(), update)
+
+	if !sender.hasText("Seeding Torrent") {
+		t.Fatalf("expected completed torrent in response, got: %v", sender.sentTexts())
+	}
+	for _, text := range sender.sentTexts() {
+		if strings.Contains(text, "Incomplete Torrent") {
+			t.Fatalf("incomplete torrent should not appear in /uploading response, got: %v", sender.sentTexts())
+		}
+	}
+}
+
+func TestHandler_UploadingCommand_NoCompleted_ShowsNoTorrents(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{
+		torrents: []qbt.Torrent{
+			{Hash: "h1", Name: "Downloading Torrent", Progress: 0.3},
+		},
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+
+	update := newCommandUpdate(1, 1, "uploading")
+	h.HandleUpdate(context.Background(), update)
+
+	if !sender.hasText("No torrents found") {
+		t.Fatalf("expected 'No torrents found', got: %v", sender.sentTexts())
+	}
+}
+
+func TestHandler_UploadingCommand_PausedUP_Appears(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{
+		torrents: []qbt.Torrent{
+			{Hash: "h1", Name: "Paused Seed", Progress: 1.0, State: "pausedUP"},
+		},
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+
+	update := newCommandUpdate(1, 1, "uploading")
+	h.HandleUpdate(context.Background(), update)
+
+	if !sender.hasText("Paused Seed") {
+		t.Fatalf("expected paused completed torrent in response, got: %v", sender.sentTexts())
+	}
+}
+
+func TestHandler_UploadingCommand_StalledUP_Appears(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{
+		torrents: []qbt.Torrent{
+			{Hash: "h1", Name: "Stalled Seed", Progress: 1.0, State: "stalledUP"},
+		},
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+
+	update := newCommandUpdate(1, 1, "uploading")
+	h.HandleUpdate(context.Background(), update)
+
+	if !sender.hasText("Stalled Seed") {
+		t.Fatalf("expected stalled seeding torrent in response, got: %v", sender.sentTexts())
+	}
+}
+
+func TestHandler_UploadingCommand_InBotCommands(t *testing.T) {
+	found := false
+	for _, cmd := range BotCommands {
+		if cmd.Command == "uploading" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected 'uploading' command in BotCommands")
+	}
+}
+
+func TestHandler_UploadingCommand_InHelpText(t *testing.T) {
+	help := HelpText()
+	if !strings.Contains(help, "/uploading") {
+		t.Fatalf("expected '/uploading' in help text, got: %s", help)
+	}
+}
+
 func TestHandler_MagnetLink_MidText(t *testing.T) {
 	sender := &mockSender{}
 	qbtClient := &mockQBTClient{
