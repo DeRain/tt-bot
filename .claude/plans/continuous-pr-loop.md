@@ -50,3 +50,11 @@
 | Implementation | Sonnet agents |
 | Gate checks | Haiku |
 | Review | Opus (main) |
+
+## Mandatory Agent Prompt Requirements
+
+Every Sonnet implementation agent prompt MUST include:
+1. `make gate-all` as a required passing step
+2. `make test-integration` as the FINAL step before reporting success
+3. Agent MUST NOT report success unless both commands pass
+4. If `make test-integration` fails, agent must fix and re-run (max 3 retries)
