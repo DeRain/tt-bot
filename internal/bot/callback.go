@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
@@ -312,13 +313,12 @@ func (h *Handler) handleSelectCallback(ctx context.Context, cq *tgbotapi.Callbac
 		return
 	}
 
-	filter, ok := filterCharToFilter(filterChar)
-	if !ok {
+	if _, ok := filterCharToFilter(filterChar); !ok {
 		h.answerCallback(cq.ID, "Invalid filter.")
 		return
 	}
 
-	all, err := h.listTorrentsForFilter(ctx, filter)
+	all, err := h.listTorrentsForFilter(ctx, qbt.FilterAll)
 	if err != nil {
 		h.answerCallback(cq.ID, fmt.Sprintf("Error: %v", err))
 		return
@@ -355,8 +355,7 @@ func (h *Handler) handleTorrentAction(ctx context.Context, cq *tgbotapi.Callback
 		return
 	}
 
-	filter, ok := filterCharToFilter(filterChar)
-	if !ok {
+	if _, ok := filterCharToFilter(filterChar); !ok {
 		h.answerCallback(cq.ID, "Invalid filter.")
 		return
 	}
@@ -371,8 +370,15 @@ func (h *Handler) handleTorrentAction(ctx context.Context, cq *tgbotapi.Callback
 		return
 	}
 
+	select {
+	case <-time.After(actionStateDelay):
+	case <-ctx.Done():
+		h.answerCallback(cq.ID, "Canceled.")
+		return
+	}
+
 	// Re-fetch the torrent to display the updated state.
-	all, listErr := h.listTorrentsForFilter(ctx, filter)
+	all, listErr := h.listTorrentsForFilter(ctx, qbt.FilterAll)
 	if listErr != nil {
 		actionText := "Paused"
 		if !pause {
@@ -743,13 +749,12 @@ func (h *Handler) handleBackFromFilesCallback(ctx context.Context, cq *tgbotapi.
 		return
 	}
 
-	filter, ok := filterCharToFilter(filterChar)
-	if !ok {
+	if _, ok := filterCharToFilter(filterChar); !ok {
 		h.answerCallback(cq.ID, "Invalid filter.")
 		return
 	}
 
-	all, err := h.listTorrentsForFilter(ctx, filter)
+	all, err := h.listTorrentsForFilter(ctx, qbt.FilterAll)
 	if err != nil {
 		h.answerCallback(cq.ID, fmt.Sprintf("Error: %v", err))
 		return
@@ -851,7 +856,7 @@ func (h *Handler) handleRemoveCancelCallback(ctx context.Context, cq *tgbotapi.C
 		return
 	}
 
-	all, err := h.listTorrentsForFilter(ctx, filter)
+	all, err := h.listTorrentsForFilter(ctx, qbt.FilterAll)
 	if err != nil {
 		h.answerCallback(cq.ID, fmt.Sprintf("Error: %v", err))
 		return

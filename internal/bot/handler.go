@@ -22,6 +22,9 @@ const (
 	pendingTTL = 5 * time.Minute
 	// cleanupInterval is how often the pending-map cleanup goroutine runs.
 	cleanupInterval = 1 * time.Minute
+	// actionStateDelay is how long to wait after a pause/resume action
+	// for qBittorrent to update the torrent state before re-fetching.
+	actionStateDelay = 500 * time.Millisecond
 )
 
 // PendingTorrent holds a torrent that the user has sent but has not yet been
@@ -329,7 +332,9 @@ func (h *Handler) editMessageText(chatID int64, messageID int, text string, kb *
 		edit.ReplyMarkup = kb
 	}
 	if _, err := h.sender.Request(edit); err != nil {
-		log.Printf("bot: edit message error: %v", err)
+		if !strings.Contains(err.Error(), "message is not modified") {
+			log.Printf("bot: edit message error: %v", err)
+		}
 	}
 }
 
