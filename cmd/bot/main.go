@@ -48,6 +48,13 @@ func main() {
 	}
 	log.Printf("Authorized on account %s", botAPI.Self.UserName)
 
+	// 2a. Register bot commands with Telegram (fail-open).
+	if err := bot.RegisterCommands(botAPI); err != nil {
+		log.Printf("WARNING: failed to register bot commands: %v", err)
+	} else {
+		log.Println("Bot commands registered with Telegram")
+	}
+
 	// 3. Create the qBittorrent HTTP client and authenticate.
 	qbtClient := qbt.NewHTTPClient(cfg.QBTBaseURL, cfg.QBTUsername, cfg.QBTPassword)
 	if err := qbtClient.Login(context.Background()); err != nil {

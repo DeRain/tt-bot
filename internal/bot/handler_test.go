@@ -21,6 +21,7 @@ type mockSender struct {
 	sentMessages []tgbotapi.Chattable
 	fileToReturn tgbotapi.File
 	fileErr      error
+	requestErr   error
 }
 
 func (m *mockSender) Send(msg tgbotapi.Chattable) (tgbotapi.Message, error) {
@@ -30,6 +31,9 @@ func (m *mockSender) Send(msg tgbotapi.Chattable) (tgbotapi.Message, error) {
 
 func (m *mockSender) Request(c tgbotapi.Chattable) (*tgbotapi.APIResponse, error) {
 	m.sentMessages = append(m.sentMessages, c)
+	if m.requestErr != nil {
+		return nil, m.requestErr
+	}
 	return &tgbotapi.APIResponse{Ok: true}, nil
 }
 

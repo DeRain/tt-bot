@@ -24,17 +24,6 @@ const (
 	cleanupInterval = 1 * time.Minute
 )
 
-// helpText is sent in response to /start and /help.
-const helpText = `tt-bot — qBittorrent Telegram controller
-
-Commands:
-  /list   — list all torrents (paginated)
-  /active — list active torrents (paginated)
-  /help   — show this message
-
-You can also send:
-  • A magnet link (magnet:?…) — prompts for category then adds it
-  • A .torrent file — prompts for category then adds it`
 
 // PendingTorrent holds a torrent that the user has sent but has not yet been
 // assigned a category. It is stored in the Handler's pending map keyed by
@@ -151,7 +140,7 @@ func (h *Handler) HandleUpdate(ctx context.Context, update tgbotapi.Update) {
 func (h *Handler) handleCommand(ctx context.Context, msg *tgbotapi.Message) {
 	switch msg.Command() {
 	case "start", "help":
-		h.replyText(msg.Chat.ID, helpText)
+		h.replyText(msg.Chat.ID, HelpText())
 
 	case "list":
 		h.sendTorrentPage(ctx, msg.Chat.ID, qbt.FilterAll, 1)

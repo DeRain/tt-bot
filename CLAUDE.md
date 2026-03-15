@@ -150,6 +150,17 @@ All Everything Claude Code (ECC) components operating in this repo MUST follow t
 /learn-eval + /update-docs        → Post-gate (extract patterns, sync docs)
 ```
 
+#### Agent Model Routing (MANDATORY)
+
+Spawn subagents with the `model` parameter matching the task phase. See `docs/gates.md` for full details.
+
+| Phase | Model | Reason |
+|-------|-------|--------|
+| Spec/Design/Plan review | Opus | Deep reasoning for requirements analysis |
+| Implementation tasks | Sonnet | Fast, accurate coding |
+| Gate checks | Haiku | Lightweight verification |
+| Debugging failures | Sonnet | Good debugging with speed |
+
 ### Existing Features
 
 | Feature ID | Description | Docs |
@@ -159,6 +170,7 @@ All Everything Claude Code (ECC) components operating in this repo MUST follow t
 | list-torrents | List all/active torrents with pagination | `docs/features/list-torrents/` |
 | completion-notifications | Background polling and completion alerts | `docs/features/completion-notifications/` |
 | config | Environment variable loading and validation | `docs/features/config/` |
+| set-commands | Register bot commands with Telegram on startup | `docs/features/set-commands/` |
 
 ### PR and Commit Conventions
 
