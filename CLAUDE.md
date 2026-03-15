@@ -85,121 +85,13 @@ docs/features/<feature-id>/
 | Automated test | TEST-N | TEST-2 |
 | Manual check | CHECK-N | CHECK-1 |
 
-### Quality Gates
+### Quality Gates, ECC Compliance, and Agent Model Routing
 
-See `docs/gates.md` for full gate definitions and harness commands.
+All gate definitions, harness commands, ECC component mappings, and agent model routing are in:
 
-| Gate | When | Key Check |
-|------|------|-----------|
-| 1. Spec | Before design | REQs and ACs are clear and testable |
-| 2. Design | Before planning | Every REQ mapped to DES |
-| 3. Plan | Before implementation | Every TASK maps to DES + REQ + verification |
-| 4. Implementation | After coding | `make gate-all` + `make test-integration` pass, traceability updated |
-| 5. Verification | Before completion | Every AC validated by BOTH unit AND integration tests, no TODO results |
+@docs/gates.md
 
-### Harness Iterative Loop Support
-
-Feature plans are designed for agent harness execution:
-- Tasks are ordered with explicit dependencies
-- Each task has a verification target (TEST-* or CHECK-*)
-- Gate check commands are embedded in templates for automated validation
-- Recovery protocol: fix → re-verify → max 3 retries → escalate
-- See `docs/gates.md` "Iterative Harness Loop Protocol" for the full agent execution model
-
-### ECC Compliance
-
-All Everything Claude Code (ECC) components operating in this repo MUST follow the docs-first workflow.
-
-#### ECC Commands → Gate Mapping
-
-| Command | Gate | Traceability Rule |
-|---------|------|-------------------|
-| `/plan` | 1-3 | MUST check for existing `docs/features/<feature-id>/`. New plans follow `plan.md` template with TASK-* → DES-* → REQ-*. |
-| `/go-test` | 4-5 | MUST reference TEST-* from `verification.md`. New tests MUST map to AC-*. Write tests first. |
-| `/tdd` | 4-5 | Scaffold interfaces, tests FIRST, minimal impl. MUST reference TEST-* and AC-*. |
-| `/go-build` | 4 recovery | Fix build/vet/lint errors. Uses `go-build-resolver` agent. Follow `docs/gates.md` recovery protocol. |
-| `/go-review` | 4 | MUST verify code changes trace to TASK-* and REQ-*. Flag untraced changes. Uses `go-reviewer` agent. |
-| `/code-review` | 4 | General quality review. MUST check traceability of changes. |
-| `/verify` | 5 | Run verification loop. MUST check all AC-* have TEST-*/CHECK-* results. |
-| `/eval` | 5 | Evaluate implementation against acceptance criteria from spec.md. |
-| `/test-coverage` | 5 | Verify 80%+ coverage threshold. Report per-package coverage. |
-| `/checkpoint` | any | Save verification state mid-harness loop for recovery. |
-| `/learn-eval` | post | Extract reusable patterns after feature completion. |
-| `/update-docs` | post | Sync documentation with code changes. Update traceability docs. |
-| `/update-codemaps` | post | Update codebase maps after structural changes. |
-| `/orchestrate` | 1-5 | Multi-agent coordination across gates. |
-| `/multi-plan` | 1-3 | Decompose feature into parallel tasks across agents. |
-| `/multi-execute` | 4 | Execute parallel TASK-* items via multiple agents. |
-
-#### ECC Agents → Gate Mapping
-
-| Agent | Gate | When to Use |
-|-------|------|-------------|
-| `planner` | 1-3 | Creating spec/design/plan for new features |
-| `architect` | 2 | System design decisions, architecture for design.md |
-| `tdd-guide` | 4-5 | Enforcing write-tests-first during implementation |
-| `code-reviewer` | 4 | Post-implementation quality + traceability review |
-| `security-reviewer` | 4 | Security-relevant requirement verification |
-| `go-reviewer` | 4 | Go-specific idiomatic patterns, concurrency, error handling |
-| `go-build-resolver` | 4 recovery | Fix Go build/vet/lint with minimal changes |
-| `build-error-resolver` | 4 recovery | Fix general build errors |
-| `refactor-cleaner` | maintenance | Dead code cleanup between features |
-| `doc-updater` | post | Sync traceability docs after changes |
-
-#### ECC Skills (Reference)
-
-| Skill | Purpose in Workflow |
-|-------|---------------------|
-| `golang-patterns` | Idiomatic Go reference when implementing TASK-* items |
-| `golang-testing` | Table-driven tests, subtests, benchmarks when writing TEST-* items |
-| `tdd-workflow` | TDD methodology: RED → GREEN → REFACTOR cycle |
-| `security-review` | Security checklist for Gate 4 |
-| `verification-loop` | Continuous verification system for Gate 5 |
-| `eval-harness` | Evaluation framework for harness loop quality |
-| `search-first` | Research existing solutions before implementing TASK-* |
-| `docker-patterns` | Docker/Compose patterns (used by this project) |
-| `deployment-patterns` | CI/CD, rollout, health checks |
-| `autonomous-loops` | Harness loop architecture patterns |
-| `continuous-learning-v2` | Extract instincts from sessions for future reuse |
-| `strategic-compact` | Context window management in long harness sessions |
-
-#### ECC Rules
-
-| Rule Set | Applied |
-|----------|---------|
-| `common/coding-style` | Yes — immutability, file organization |
-| `common/git-workflow` | Yes — commit format, PR process |
-| `common/testing` | Yes — TDD, 80% coverage |
-| `common/performance` | Yes — model routing, context management |
-| `common/patterns` | Yes — design patterns, skeleton projects |
-| `common/hooks` | Yes — hook architecture, TodoWrite |
-| `common/agents` | Yes — agent delegation rules |
-| `common/security` | Yes — mandatory security checks |
-| `golang/` | Yes — Go-specific rules |
-
-#### Gate Execution Flow
-
-```
-/plan + planner + architect        → Gates 1-3 (spec, design, plan)
-/go-test + /tdd + tdd-guide        → Gate 4 (write tests for AC-*)
-/multi-execute + go-build-resolver  → Gate 4 (implement TASK-*, fix build)
-make test-integration               → Gate 4 (verify against real services — MANDATORY)
-/go-review + code-reviewer          → Gate 4 (review traceability)
-/verify + /eval + /test-coverage    → Gate 5 (validate all AC-* with real evidence)
-/checkpoint                         → Save state between gates
-/learn-eval + /update-docs          → Post-gate (extract patterns, sync docs)
-```
-
-#### Agent Model Routing (MANDATORY)
-
-Spawn subagents with the `model` parameter matching the task phase. See `docs/gates.md` for full details.
-
-| Phase | Model | Reason |
-|-------|-------|--------|
-| Spec/Design/Plan review | Opus | Deep reasoning for requirements analysis |
-| Implementation tasks | Sonnet | Fast, accurate coding |
-| Gate checks | Haiku | Lightweight verification |
-| Debugging failures | Sonnet | Good debugging with speed |
+All ECC components operating in this repo MUST follow the docs-first workflow.
 
 ### Existing Features
 
@@ -215,11 +107,7 @@ Spawn subagents with the `model` parameter matching the task phase. See `docs/ga
 
 ### PR and Commit Conventions
 
-See `docs/pr-checklist.md` for the full PR template and commit message guidance.
-
-- PRs MUST include: Feature ID, REQ-* implemented, TASK-* completed, AC-* covered, verification evidence.
-- Commits SHOULD include feature ID and task ID: `feat(auth): TASK-2 implement whitelist authorizer`
-- Untraced changes MUST be justified in the PR description.
+@docs/pr-checklist.md
 
 ## Build & Test Commands
 
