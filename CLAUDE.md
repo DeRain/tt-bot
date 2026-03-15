@@ -6,6 +6,32 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 tt-bot is a stateless Go Telegram bot for managing qBittorrent downloads. Whitelisted Telegram users can add torrents (magnet links and .torrent files), pick categories via inline keyboards, list torrents with pagination, and receive completion notifications.
 
+## Model Routing Enforcement (MANDATORY)
+
+Opus MUST NOT write implementation code directly. All implementation file edits MUST be dispatched to Sonnet agents via the `model: sonnet` parameter.
+
+### Role Separation
+
+| Role | Model | Scope |
+|------|-------|-------|
+| Orchestration | Opus | Docs (`.md`), plans, memory, git ops, `.claude/` config, CLAUDE.md, review |
+| Implementation | Sonnet (agents) | All code and config files |
+| Gate checks | Haiku (agents) | Lint, build verification, coverage checks |
+
+### Implementation Files (Sonnet only)
+
+`*.go`, `*.yaml`, `*.yml`, `Dockerfile`, `docker-compose*.yml`, `Makefile`, `*.toml`, `*.json` (non-claude config), `.env*`
+
+### Orchestration Files (Opus ok)
+
+`*.md`, `.claude/` directory config, `CLAUDE.md`
+
+### Enforcement
+
+- Before editing any implementation file, Opus MUST dispatch a Sonnet agent instead
+- Opus may only edit implementation files for trivial 1-line fixes after a Sonnet agent has already done the main work
+- Violating this rule wastes tokens at 5x cost and contradicts the project's model routing strategy
+
 ## Docs-First Feature Workflow (MANDATORY)
 
 This repository uses **requirements-traceability** for all non-trivial work. Every feature requirement and acceptance criterion is traced through: specification → design → plan → implementation → verification.
