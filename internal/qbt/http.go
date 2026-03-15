@@ -350,6 +350,35 @@ func (c *HTTPClient) ResumeTorrents(ctx context.Context, hashes []string) error 
 	return nil
 }
 
+// DeleteTorrents removes one or more torrents by info-hash.
+// If deleteFiles is true, the associated downloaded data is also removed from disk.
+// Hashes are sent as a pipe-separated string to /api/v2/torrents/delete.
+func (c *HTTPClient) DeleteTorrents(ctx context.Context, hashes []string, deleteFiles bool) error {
+	form := url.Values{}
+	form.Set("hashes", strings.Join(hashes, "|"))
+	form.Set("deleteFiles", strconv.FormatBool(deleteFiles))
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		c.baseURL+"/api/v2/torrents/delete",
+		strings.NewReader(form.Encode()),
+	)
+	if err != nil {
+		return fmt.Errorf("qbt delete torrents: build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := c.doWithAuth(req)
+	if err != nil {
+		return fmt.Errorf("qbt delete torrents: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("qbt delete torrents: unexpected status %d", resp.StatusCode)
+	}
+	return nil
+}
+
 // Categories returns all configured categories sorted by name.
 func (c *HTTPClient) Categories(ctx context.Context) ([]Category, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,

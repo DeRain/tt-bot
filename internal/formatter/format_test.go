@@ -507,8 +507,9 @@ func TestTorrentDetailKeyboard_AlwaysBothButtons(t *testing.T) {
 	for _, state := range states {
 		kb := formatter.TorrentDetailKeyboard(hash, "a", 1, state)
 
-		if len(kb) != 2 {
-			t.Fatalf("state %q: expected 2 rows, got %d", state, len(kb))
+		// Now 3 rows: [Pause|Start], [Remove], [Back].
+		if len(kb) != 3 {
+			t.Fatalf("state %q: expected 3 rows, got %d", state, len(kb))
 		}
 
 		// Row 1: both Pause and Start buttons side by side.
@@ -531,10 +532,37 @@ func TestTorrentDetailKeyboard_AlwaysBothButtons(t *testing.T) {
 			t.Errorf("state %q: expected re: prefix, got %q", state, row[1].CallbackData)
 		}
 
-		// Row 2: Back button.
-		if !strings.Contains(kb[1][0].Text, "Back") {
-			t.Errorf("state %q: expected Back button, got %q", state, kb[1][0].Text)
+		// Row 2: Remove button (AC-1.1, AC-1.2).
+		if !strings.Contains(kb[1][0].Text, "Remove") {
+			t.Errorf("state %q: expected Remove button in row 2, got %q", state, kb[1][0].Text)
 		}
+		if !strings.HasPrefix(kb[1][0].CallbackData, "rm:") {
+			t.Errorf("state %q: expected rm: prefix, got %q", state, kb[1][0].CallbackData)
+		}
+
+		// Row 3: Back button.
+		if !strings.Contains(kb[2][0].Text, "Back") {
+			t.Errorf("state %q: expected Back button, got %q", state, kb[2][0].Text)
+		}
+	}
+}
+
+// TEST-4: TorrentDetailKeyboard Remove button callback fits within 64 bytes (AC-1.1).
+func TestTorrentDetailKeyboard_RemoveCallbackFitsLimit(t *testing.T) {
+	hash := strings.Repeat("f", 40)
+	kb := formatter.TorrentDetailKeyboard(hash, "a", 99, "downloading")
+
+	// Find the Remove button in row 2.
+	if len(kb) < 2 {
+		t.Fatal("expected at least 2 rows in detail keyboard")
+	}
+	removeBtn := kb[1][0]
+	if !strings.HasPrefix(removeBtn.CallbackData, "rm:") {
+		t.Fatalf("expected rm: prefix, got %q", removeBtn.CallbackData)
+	}
+	if len(removeBtn.CallbackData) > formatter.MaxCallbackData {
+		t.Errorf("rm: callback %q (%d bytes) exceeds %d byte limit",
+			removeBtn.CallbackData, len(removeBtn.CallbackData), formatter.MaxCallbackData)
 	}
 }
 
@@ -549,6 +577,85 @@ func TestTorrentDetailKeyboard_CallbackDataUnderLimit(t *testing.T) {
 					btn.CallbackData, len(btn.CallbackData), formatter.MaxCallbackData)
 			}
 		}
+	}
+}
+
+// ---- FormatRemoveConfirmation (TEST-5) -------------------------------------
+
+// TEST-5: FormatRemoveConfirmation includes torrent name and prompt text (AC-2.1).
+func TestFormatRemoveConfirmation_ContainsNameAndPrompt(t *testing.T) {
+	name := "Ubuntu 24.04 Desktop AMD64 ISO"
+	msg := formatter.FormatRemoveConfirmation(name)
+
+	if !strings.Contains(msg, name) {
+		t.Errorf("expected torrent name %q in confirmation message, got: %q", name, msg)
+	}
+	if !strings.Contains(msg, "Remove") {
+		t.Errorf("expected 'Remove' in confirmation message, got: %q", msg)
+	}
+}
+
+func TestFormatRemoveConfirmation_EmptyName(t *testing.T) {
+	msg := formatter.FormatRemoveConfirmation("")
+	if len(msg) == 0 {
+		t.Error("expected non-empty confirmation message for empty torrent name")
+	}
+}
+
+// ---- RemoveConfirmKeyboard (TEST-6) ----------------------------------------
+
+// TEST-6: RemoveConfirmKeyboard has 3 rows with correct prefixes (AC-2.1, AC-4.2).
+func TestRemoveConfirmKeyboard_ThreeRows(t *testing.T) {
+	hash := strings.Repeat("a", 40)
+	kb := formatter.RemoveConfirmKeyboard(hash, "a", 1)
+
+	if len(kb) != 3 {
+		t.Fatalf("expected 3 rows in confirm keyboard, got %d", len(kb))
+	}
+
+	// Row 1: rd: (remove torrent only).
+	if !strings.HasPrefix(kb[0][0].CallbackData, "rd:") {
+		t.Errorf("row 1: expected rd: prefix, got %q", kb[0][0].CallbackData)
+	}
+
+	// Row 2: rf: (remove with files).
+	if !strings.HasPrefix(kb[1][0].CallbackData, "rf:") {
+		t.Errorf("row 2: expected rf: prefix, got %q", kb[1][0].CallbackData)
+	}
+
+	// Row 3: rc: (cancel).
+	if !strings.HasPrefix(kb[2][0].CallbackData, "rc:") {
+		t.Errorf("row 3: expected rc: prefix, got %q", kb[2][0].CallbackData)
+	}
+}
+
+// TEST-6: All RemoveConfirmKeyboard callbacks fit within 64 bytes at worst case (AC-4.2).
+func TestRemoveConfirmKeyboard_CallbackDataUnderLimit(t *testing.T) {
+	hash := strings.Repeat("f", 40)
+	kb := formatter.RemoveConfirmKeyboard(hash, "a", 99)
+
+	for i, row := range kb {
+		for _, btn := range row {
+			if len(btn.CallbackData) > formatter.MaxCallbackData {
+				t.Errorf("row %d callback %q (%d bytes) exceeds %d byte limit",
+					i, btn.CallbackData, len(btn.CallbackData), formatter.MaxCallbackData)
+			}
+		}
+	}
+}
+
+func TestRemoveConfirmKeyboard_ButtonTexts(t *testing.T) {
+	hash := strings.Repeat("b", 40)
+	kb := formatter.RemoveConfirmKeyboard(hash, "a", 1)
+
+	if !strings.Contains(kb[0][0].Text, "torrent only") {
+		t.Errorf("row 1 button should mention 'torrent only', got %q", kb[0][0].Text)
+	}
+	if !strings.Contains(kb[1][0].Text, "files") {
+		t.Errorf("row 2 button should mention 'files', got %q", kb[1][0].Text)
+	}
+	if !strings.Contains(kb[2][0].Text, "Cancel") {
+		t.Errorf("row 3 button should be Cancel, got %q", kb[2][0].Text)
 	}
 }
 
