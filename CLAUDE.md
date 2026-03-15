@@ -32,6 +32,22 @@ Opus MUST NOT write implementation code directly. All implementation file edits 
 - Opus may only edit implementation files for trivial 1-line fixes after a Sonnet agent has already done the main work
 - Violating this rule wastes tokens at 5x cost and contradicts the project's model routing strategy
 
+## Pre-Commit Quality Gate Checklist (MANDATORY)
+
+**Every feature MUST complete ALL steps IN ORDER before commit/PR. No skipping. No exceptions.**
+
+1. Sonnet agent implements via TDD (write tests first → RED → implement → GREEN)
+2. Sonnet agent runs `make gate-all` — MUST pass
+3. Sonnet agent adds E2E integration tests (`//go:build integration` tag)
+4. Sonnet agent runs `make test-integration` — MUST pass
+5. Sonnet agent updates `traceability.md` and `verification.md` with evidence
+6. Opus dispatches `go-reviewer` agent for code review
+7. Opus independently runs `make test-integration` to verify
+8. Address any code review findings (dispatch Sonnet if code changes needed)
+9. **ONLY THEN**: commit, push, create PR
+
+**DO NOT commit after step 5. Steps 6-8 are NOT optional.**
+
 ## Docs-First Feature Workflow (MANDATORY)
 
 This repository uses **requirements-traceability** for all non-trivial work. Every feature requirement and acceptance criterion is traced through: specification → design → plan → implementation → verification.
