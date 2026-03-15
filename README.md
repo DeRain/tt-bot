@@ -6,7 +6,11 @@ A stateless Telegram bot for managing qBittorrent downloads.
 
 - **Add torrents** — send magnet links or `.torrent` files
 - **Category selection** — pick a qBittorrent category via inline keyboard before adding
-- **List torrents** — paginated views of all or active downloads
+- **List torrents** — paginated views: all, active, downloading, or uploading
+- **Torrent detail view** — size, progress, speeds, uploaded amount, ratio, category
+- **Torrent file management** — view files within a torrent, change download priorities (Skip/Normal/High/Maximum)
+- **Torrent control** — pause, resume, and remove torrents with confirmation
+- **Human-readable statuses** — qBittorrent states mapped to emoji labels (e.g. `stalledDL` → `⬇️ Downloading (stalled)`)
 - **Completion notifications** — get notified when a download finishes
 - **Access control** — whitelist Telegram users by numeric ID
 
@@ -29,23 +33,7 @@ A stateless Telegram bot for managing qBittorrent downloads.
   <img src="docs/images/botfather-token.png" alt="BotFather in Telegram showing the My Bots list" width="400">
 </p>
 
-> **Important:** The bot does **not** auto-register its commands with Telegram. You must configure them manually:
-
-4. Send `/setcommands` to @BotFather.
-5. Select your bot.
-6. Paste the following command list:
-
-```
-list - List all torrents (paginated)
-active - List active downloads (paginated)
-help - Show help message
-```
-
-This enables command autocompletion in the Telegram chat input.
-
-<p align="center">
-  <img src="docs/images/botfather-commands.png" alt="BotFather Commands screen showing /list, /active, and /help configured" width="400">
-</p>
+> **Note:** The bot auto-registers its commands with Telegram on startup via `setMyCommands`. You don't need to configure them manually in BotFather.
 
 ### Step 2: Get Your Telegram User ID
 
@@ -176,13 +164,37 @@ Get-Content .env | ForEach-Object {
 | Command | Description |
 |---------|-------------|
 | `/list` | List all torrents with pagination |
-| `/active` | List active downloads with pagination |
+| `/active` | List active transfers (downloading + seeding) |
+| `/downloading` | List incomplete torrents (paused + active) |
+| `/uploading` | List completed torrents (seeding, paused seeds) |
 | `/help` | Show available commands and usage |
 
 ### Adding Torrents
 
 - **Magnet link** — paste a magnet URI into the chat. The bot prompts you to select a category, then adds the torrent.
 - **`.torrent` file** — send a `.torrent` file as a document. Same category selection flow as magnet links.
+
+### Torrent Detail View
+
+Select any torrent from a list to see its detail view with:
+- Name, size, progress bar, download/upload speeds
+- Uploaded amount and share ratio
+- Human-readable status with emoji (e.g. `🌱 Seeding`, `⏸️ Paused (Downloading)`)
+- Category
+
+### Torrent Controls
+
+From the detail view:
+- **⏸ Pause / ▶️ Start** — pause or resume the torrent
+- **🗑 Remove** — remove with confirmation (keep files or delete files)
+- **📁 Files** — view and manage individual files
+
+### File Management
+
+From the files view:
+- See each file's name, size, progress, and download priority
+- Change priority per file: **Skip**, **Normal**, **High**, **Maximum**
+- Paginated for torrents with many files (5 per page)
 
 ### Completion Notifications
 
@@ -229,7 +241,7 @@ internal/poller/       Background goroutine detecting completed downloads
 | Package | Coverage |
 |---------|----------|
 | config | 91.3% |
-| formatter | 94.8% |
+| formatter | 97.3% |
 | poller | 88.2% |
-| bot | 81.5% |
-| qbt | 77.6% |
+| bot | 82.6% |
+| qbt | 80.8% |
