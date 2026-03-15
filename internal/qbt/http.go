@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -291,6 +292,62 @@ func (c *HTTPClient) ListTorrents(ctx context.Context, opts ListOptions) ([]Torr
 		return nil, fmt.Errorf("qbt list torrents: decode response: %w", err)
 	}
 	return torrents, nil
+}
+
+// PauseTorrents pauses (stops) the given torrents by info-hash.
+// Hashes are sent as a pipe-separated string to /api/v2/torrents/stop.
+// Note: qBittorrent v5+ renamed /pause to /stop.
+func (c *HTTPClient) PauseTorrents(ctx context.Context, hashes []string) error {
+	form := url.Values{}
+	form.Set("hashes", strings.Join(hashes, "|"))
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		c.baseURL+"/api/v2/torrents/stop",
+		strings.NewReader(form.Encode()),
+	)
+	if err != nil {
+		return fmt.Errorf("qbt pause torrents: build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := c.doWithAuth(req)
+	if err != nil {
+		return fmt.Errorf("qbt pause torrents: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("qbt pause torrents: unexpected status %d", resp.StatusCode)
+	}
+	return nil
+}
+
+// ResumeTorrents resumes (starts) the given torrents by info-hash.
+// Hashes are sent as a pipe-separated string to /api/v2/torrents/start.
+// Note: qBittorrent v5+ renamed /resume to /start.
+func (c *HTTPClient) ResumeTorrents(ctx context.Context, hashes []string) error {
+	form := url.Values{}
+	form.Set("hashes", strings.Join(hashes, "|"))
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		c.baseURL+"/api/v2/torrents/start",
+		strings.NewReader(form.Encode()),
+	)
+	if err != nil {
+		return fmt.Errorf("qbt resume torrents: build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := c.doWithAuth(req)
+	if err != nil {
+		return fmt.Errorf("qbt resume torrents: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("qbt resume torrents: unexpected status %d", resp.StatusCode)
+	}
+	return nil
 }
 
 // Categories returns all configured categories sorted by name.

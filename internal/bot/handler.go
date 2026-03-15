@@ -244,30 +244,17 @@ func downloadFileURL(ctx context.Context, client *http.Client, url string) ([]by
 // sendTorrentPage fetches torrents and sends the requested page to the chat.
 // A single API call fetches all matching torrents; paging is done in Go.
 func (h *Handler) sendTorrentPage(ctx context.Context, chatID int64, filter qbt.TorrentFilter, page int) {
-	all, err := h.qbt.ListTorrents(ctx, qbt.ListOptions{Filter: filter})
-	if err != nil {
-		h.replyText(chatID, fmt.Sprintf("Error fetching torrents: %v", err))
-		return
-	}
-
-	totalPages := formatter.TotalPages(len(all), formatter.TorrentsPerPage)
-	offset := (page - 1) * formatter.TorrentsPerPage
-	end := offset + formatter.TorrentsPerPage
-	if end > len(all) {
-		end = len(all)
-	}
-	var torrents []qbt.Torrent
-	if offset < len(all) {
-		torrents = all[offset:end]
-	}
-	text := formatter.FormatTorrentList(torrents, page, totalPages)
-
 	filterPrefix := "all"
 	if filter == qbt.FilterActive {
 		filterPrefix = "act"
 	}
 
-	kb := formatter.PaginationKeyboard(page, totalPages, filterPrefix)
+	text, kb, err := h.renderTorrentListPage(ctx, filter, filterPrefix, page)
+	if err != nil {
+		h.replyText(chatID, fmt.Sprintf("Error fetching torrents: %v", err))
+		return
+	}
+
 	replyMsg := tgbotapi.NewMessage(chatID, text)
 	replyMsg.ReplyMarkup = toTGKeyboard(kb)
 

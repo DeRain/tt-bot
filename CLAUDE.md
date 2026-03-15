@@ -55,8 +55,8 @@ See `docs/gates.md` for full gate definitions and harness commands.
 | 1. Spec | Before design | REQs and ACs are clear and testable |
 | 2. Design | Before planning | Every REQ mapped to DES |
 | 3. Plan | Before implementation | Every TASK maps to DES + REQ + verification |
-| 4. Implementation | After coding | `make gate-all` passes, traceability updated |
-| 5. Verification | Before completion | Every AC validated, no gaps |
+| 4. Implementation | After coding | `make gate-all` + `make test-integration` pass, traceability updated |
+| 5. Verification | Before completion | Every AC validated by BOTH unit AND integration tests, no TODO results |
 
 ### Harness Iterative Loop Support
 
@@ -141,13 +141,14 @@ All Everything Claude Code (ECC) components operating in this repo MUST follow t
 #### Gate Execution Flow
 
 ```
-/plan + planner + architect      → Gates 1-3 (spec, design, plan)
-/go-test + /tdd + tdd-guide      → Gate 4 (write tests for AC-*)
-/multi-execute + go-build-resolver → Gate 4 (implement TASK-*, fix build)
-/go-review + code-reviewer        → Gate 4 (review traceability)
-/verify + /eval + /test-coverage  → Gate 5 (validate all AC-*)
-/checkpoint                       → Save state between gates
-/learn-eval + /update-docs        → Post-gate (extract patterns, sync docs)
+/plan + planner + architect        → Gates 1-3 (spec, design, plan)
+/go-test + /tdd + tdd-guide        → Gate 4 (write tests for AC-*)
+/multi-execute + go-build-resolver  → Gate 4 (implement TASK-*, fix build)
+make test-integration               → Gate 4 (verify against real services — MANDATORY)
+/go-review + code-reviewer          → Gate 4 (review traceability)
+/verify + /eval + /test-coverage    → Gate 5 (validate all AC-* with real evidence)
+/checkpoint                         → Save state between gates
+/learn-eval + /update-docs          → Post-gate (extract patterns, sync docs)
 ```
 
 #### Agent Model Routing (MANDATORY)
@@ -190,6 +191,8 @@ See `docs/pr-checklist.md` for the full PR template and commit message guidance.
 | `make test-integration` | Integration + E2E tests in Docker (spins up qBittorrent, runs all `Integration\|E2E` tests, tears down) |
 | `make gate-all` | Full quality gate: build → lint → unit tests |
 | `make clean` | Remove coverage.out and bot binary |
+
+**Integration tests are MANDATORY.** Always run `make test-integration` before marking any AC as PASS or any feature as complete. Unit tests with mocks cannot catch real API contract issues — endpoint renames, response format changes, and auth behavior differences are invisible to httptest-based tests. This was learned the hard way: qBittorrent v5 renamed `/pause` → `/stop` and `/resume` → `/start`, and only `make test-integration` caught the 404s.
 
 ```bash
 # Run a single test

@@ -82,6 +82,7 @@ test "$tasks" -eq "$verifications" || echo "FAIL: $tasks tasks but $verification
 
 **Pass criteria:**
 - [ ] `make gate-all` passes (build + lint + unit tests)
+- [ ] `make test-integration` passes (integration + E2E tests against real services)
 - [ ] Changed files map to TASK-* and REQ-* in plan
 - [ ] No untraced code changes exist
 - [ ] Implementation evidence recorded in traceability.md
@@ -90,6 +91,7 @@ test "$tasks" -eq "$verifications" || echo "FAIL: $tasks tasks but $verification
 **Harness commands:**
 ```bash
 make gate-all
+make test-integration
 # Verify traceability is updated
 FEATURE="<feature-id>"
 test $(grep -c "| TODO |" docs/features/$FEATURE/traceability.md) -eq 0
@@ -101,20 +103,23 @@ test $(grep -c "| TODO |" docs/features/$FEATURE/traceability.md) -eq 0
 
 **Pass criteria:**
 - [ ] Every AC-* has at least one TEST-* or CHECK-*
-- [ ] All automated tests pass
+- [ ] All unit tests pass (`go test ./... -short`)
+- [ ] All integration + E2E tests pass (`make test-integration`) — **MANDATORY, never skip or defer**
 - [ ] All manual checks recorded with evidence
 - [ ] No AC-* has Result = TODO or FAIL in verification.md
 - [ ] Coverage meets 80% threshold
+
+> **CRITICAL**: Unit tests with mocks cannot catch real API contract issues (e.g. renamed endpoints, changed response formats). An AC is NOT verified until integration tests confirm it against a real service. Never mark an AC as PASS based on unit tests alone when an integration test exists for it. See `decisions.md` in torrent-control for the qBittorrent v5 endpoint rename incident.
 
 **Harness commands:**
 ```bash
 FEATURE="<feature-id>"
 # Unit tests pass with coverage
 go test ./... -short -cover -coverprofile=coverage.out
-# No unverified ACs
-test $(grep -c "| TODO |" docs/features/$FEATURE/verification.md) -eq 0
-# Integration tests (if applicable)
+# Integration + E2E tests against real services — MANDATORY
 make test-integration
+# No unverified ACs (must be 0 BEFORE marking feature complete)
+test $(grep -c "| TODO |" docs/features/$FEATURE/verification.md) -eq 0
 ```
 
 ## Iterative Harness Loop Protocol
@@ -124,10 +129,12 @@ When an agent harness executes a feature plan:
 1. **Pre-flight**: Verify Gates 1-3 pass before writing any code.
 2. **Execute tasks** in dependency order from plan.md.
 3. **After each TASK-***: run its verification target. If fail → fix → retry (max 3).
-4. **After all tasks**: run Gate 4 (implementation gate).
+4. **After all tasks**: run Gate 4 — `make gate-all` AND `make test-integration`.
 5. **Update traceability.md** with implementation evidence.
-6. **Run Gate 5** (verification gate).
+6. **Run Gate 5** — unit tests, integration tests, verify all ACs are PASS (not TODO).
 7. **Report**: produce summary of gate results, gaps, and next actions.
+
+> **Never defer integration tests.** If Docker is available, run `make test-integration` in the same session. Integration tests catch real API issues that unit tests with mocks cannot (endpoint renames, response format changes, auth behavior). An AC marked "PASS (unit), TODO (integration)" is NOT verified.
 
 ### Recovery Protocol
 

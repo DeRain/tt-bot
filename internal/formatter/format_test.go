@@ -343,6 +343,214 @@ func TestTotalPages(t *testing.T) {
 	}
 }
 
+// ---- FormatSize ------------------------------------------------------------
+
+func TestFormatSize(t *testing.T) {
+	cases := []struct {
+		input int64
+		want  string
+	}{
+		{0, "0 B"},
+		{512, "512 B"},
+		{1023, "1023 B"},
+		{1024, "1.0 KB"},
+		{512 * 1024, "512.0 KB"},
+		{1024 * 1024, "1.0 MB"},
+		{1536 * 1024, "1.5 MB"},
+		{1024 * 1024 * 1024, "1.0 GB"},
+		{int64(1.5 * 1024 * 1024 * 1024), "1.5 GB"},
+		{1024 * 1024 * 1024 * 1024, "1.0 TB"},
+	}
+	for _, c := range cases {
+		got := formatter.FormatSize(c.input)
+		if got != c.want {
+			t.Errorf("FormatSize(%d) = %q, want %q", c.input, got, c.want)
+		}
+	}
+}
+
+// ---- IsPaused --------------------------------------------------------------
+
+func TestIsPaused(t *testing.T) {
+	cases := []struct {
+		state string
+		want  bool
+	}{
+		{"pausedDL", true},
+		{"pausedUP", true},
+		{"downloading", false},
+		{"seeding", false},
+		{"stalledDL", false},
+		{"stalledUP", false},
+		{"uploading", false},
+		{"queuedDL", false},
+		{"queuedUP", false},
+		{"error", false},
+		{"missingFiles", false},
+		{"", false},
+	}
+	for _, c := range cases {
+		got := formatter.IsPaused(c.state)
+		if got != c.want {
+			t.Errorf("IsPaused(%q) = %v, want %v", c.state, got, c.want)
+		}
+	}
+}
+
+// ---- FormatTorrentDetail ---------------------------------------------------
+
+func TestFormatTorrentDetail(t *testing.T) {
+	torrent := qbt.Torrent{
+		Hash:     "abc123",
+		Name:     "Ubuntu 24.04 Desktop AMD64 ISO",
+		State:    "downloading",
+		Progress: 0.65,
+		Size:     2 * 1024 * 1024 * 1024,
+		DLSpeed:  5 * 1024 * 1024,
+		UPSpeed:  512 * 1024,
+		Category: "linux",
+	}
+
+	text := formatter.FormatTorrentDetail(torrent)
+
+	if !strings.Contains(text, "Ubuntu 24.04") {
+		t.Error("expected full torrent name in detail")
+	}
+	if !strings.Contains(text, "2.0 GB") {
+		t.Error("expected formatted size")
+	}
+	if !strings.Contains(text, "downloading") {
+		t.Error("expected state")
+	}
+	if !strings.Contains(text, "linux") {
+		t.Error("expected category")
+	}
+	if !strings.Contains(text, "█") {
+		t.Error("expected progress bar")
+	}
+	if len(text) > formatter.MaxMessageLength {
+		t.Errorf("detail text %d chars exceeds limit", len(text))
+	}
+}
+
+func TestFormatTorrentDetail_NoCategory(t *testing.T) {
+	torrent := qbt.Torrent{Name: "Test", Category: ""}
+	text := formatter.FormatTorrentDetail(torrent)
+	if !strings.Contains(text, "none") {
+		t.Error("expected 'none' for empty category")
+	}
+}
+
+func TestFormatTorrentDetail_LongName(t *testing.T) {
+	torrent := qbt.Torrent{Name: strings.Repeat("A", 300)}
+	text := formatter.FormatTorrentDetail(torrent)
+	if len(text) > formatter.MaxMessageLength {
+		t.Errorf("detail text %d chars exceeds limit", len(text))
+	}
+}
+
+// ---- TorrentDetailKeyboard -------------------------------------------------
+
+func TestTorrentDetailKeyboard_Paused(t *testing.T) {
+	hash := strings.Repeat("a", 40)
+	kb := formatter.TorrentDetailKeyboard(hash, "a", 1, "pausedDL")
+
+	if len(kb) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(kb))
+	}
+
+	// First row should be Resume button.
+	if !strings.Contains(kb[0][0].Text, "Resume") {
+		t.Errorf("expected Resume button, got %q", kb[0][0].Text)
+	}
+	if !strings.HasPrefix(kb[0][0].CallbackData, "re:") {
+		t.Errorf("expected re: prefix, got %q", kb[0][0].CallbackData)
+	}
+
+	// Second row should be Back button.
+	if !strings.Contains(kb[1][0].Text, "Back") {
+		t.Errorf("expected Back button, got %q", kb[1][0].Text)
+	}
+	if !strings.HasPrefix(kb[1][0].CallbackData, "bk:") {
+		t.Errorf("expected bk: prefix, got %q", kb[1][0].CallbackData)
+	}
+}
+
+func TestTorrentDetailKeyboard_Active(t *testing.T) {
+	hash := strings.Repeat("b", 40)
+	kb := formatter.TorrentDetailKeyboard(hash, "c", 3, "downloading")
+
+	if !strings.Contains(kb[0][0].Text, "Pause") {
+		t.Errorf("expected Pause button, got %q", kb[0][0].Text)
+	}
+	if !strings.HasPrefix(kb[0][0].CallbackData, "pa:") {
+		t.Errorf("expected pa: prefix, got %q", kb[0][0].CallbackData)
+	}
+}
+
+func TestTorrentDetailKeyboard_CallbackDataUnderLimit(t *testing.T) {
+	hash := strings.Repeat("f", 40)
+	kb := formatter.TorrentDetailKeyboard(hash, "c", 99, "pausedUP")
+
+	for _, row := range kb {
+		for _, btn := range row {
+			if len(btn.CallbackData) > formatter.MaxCallbackData {
+				t.Errorf("callback %q (%d bytes) exceeds %d limit",
+					btn.CallbackData, len(btn.CallbackData), formatter.MaxCallbackData)
+			}
+		}
+	}
+}
+
+// ---- TorrentSelectionKeyboard ----------------------------------------------
+
+func TestTorrentSelectionKeyboard(t *testing.T) {
+	torrents := []qbt.Torrent{
+		{Hash: strings.Repeat("a", 40), Name: "Torrent A"},
+		{Hash: strings.Repeat("b", 40), Name: "Torrent B"},
+		{Hash: strings.Repeat("c", 40), Name: "Torrent C"},
+	}
+
+	kb := formatter.TorrentSelectionKeyboard(torrents, "a", 1)
+
+	if len(kb) != 3 {
+		t.Fatalf("expected 3 rows, got %d", len(kb))
+	}
+
+	if !strings.HasPrefix(kb[0][0].Text, "1.") {
+		t.Errorf("expected '1.' prefix, got %q", kb[0][0].Text)
+	}
+	if !strings.HasPrefix(kb[0][0].CallbackData, "sel:a:1:") {
+		t.Errorf("unexpected callback: %q", kb[0][0].CallbackData)
+	}
+	if !strings.HasPrefix(kb[2][0].Text, "3.") {
+		t.Errorf("expected '3.' prefix, got %q", kb[2][0].Text)
+	}
+}
+
+func TestTorrentSelectionKeyboard_Empty(t *testing.T) {
+	kb := formatter.TorrentSelectionKeyboard(nil, "a", 1)
+	if kb != nil {
+		t.Errorf("expected nil keyboard for empty list, got %v", kb)
+	}
+}
+
+func TestTorrentSelectionKeyboard_CallbackDataUnderLimit(t *testing.T) {
+	torrents := []qbt.Torrent{
+		{Hash: strings.Repeat("f", 40), Name: "Long Name Torrent"},
+	}
+	kb := formatter.TorrentSelectionKeyboard(torrents, "c", 99)
+
+	for _, row := range kb {
+		for _, btn := range row {
+			if len(btn.CallbackData) > formatter.MaxCallbackData {
+				t.Errorf("callback %q (%d bytes) exceeds %d limit",
+					btn.CallbackData, len(btn.CallbackData), formatter.MaxCallbackData)
+			}
+		}
+	}
+}
+
 // ---- All callback data must never exceed MaxCallbackData -------------------
 
 func TestAllCallbackDataUnderLimit(t *testing.T) {
