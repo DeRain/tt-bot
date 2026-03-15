@@ -36,6 +36,39 @@ type ButtonRow []Button
 // Keyboard is a collection of button rows forming an inline keyboard.
 type Keyboard []ButtonRow
 
+// stateLabels maps raw qBittorrent state strings to human-readable labels with emoji prefixes.
+var stateLabels = map[string]string{
+	"error":              "❌ Error",
+	"missingFiles":       "⚠️ Missing Files",
+	"uploading":          "🌱 Seeding",
+	"pausedUP":           "⏸️ Paused (Seeding)",
+	"queuedUP":           "🕐 Queued (Seeding)",
+	"stalledUP":          "🌱 Seeding (stalled)",
+	"checkingUP":         "🔍 Checking",
+	"forcedUP":           "⏫ Force Seeding",
+	"allocating":         "💾 Allocating",
+	"downloading":        "⬇️ Downloading",
+	"metaDL":             "🔎 Fetching Metadata",
+	"pausedDL":           "⏸️ Paused (Downloading)",
+	"queuedDL":           "🕐 Queued (Downloading)",
+	"stalledDL":          "⬇️ Downloading (stalled)",
+	"checkingDL":         "🔍 Checking",
+	"forcedDL":           "⏬ Force Downloading",
+	"checkingResumeData": "🔍 Checking",
+	"moving":             "📦 Moving",
+	"unknown":            "❓ Unknown",
+}
+
+// FormatState maps a raw qBittorrent state string to a human-readable label
+// with an emoji prefix. If the state is not recognized, it returns "❓ <state>".
+// It never returns an empty string and never panics.
+func FormatState(state string) string {
+	if label, ok := stateLabels[state]; ok {
+		return label
+	}
+	return "❓ " + state
+}
+
 // FormatSpeed formats a bytes-per-second value into a human-readable speed string.
 // Values below 1 KB/s are shown as "X B/s", below 1 MB/s as "X.X KB/s",
 // and anything larger as "X.X MB/s".
@@ -112,7 +145,7 @@ func FormatTorrentList(torrents []qbt.Torrent, page, totalPages int) string {
 			progress,
 			dl,
 			up,
-			t.State,
+			FormatState(t.State),
 		)
 
 		// Guard against exceeding the Telegram message limit.
@@ -211,7 +244,7 @@ func FormatTorrentDetail(t qbt.Torrent) string {
 		FormatProgress(t.Progress),
 		FormatSpeed(t.DLSpeed),
 		FormatSpeed(t.UPSpeed),
-		t.State,
+		FormatState(t.State),
 		cat,
 	)
 }

@@ -224,8 +224,8 @@ func TestCallback_Select_ShowsDetailView(t *testing.T) {
 	if !sender.hasEditText("Ubuntu 24.04") {
 		t.Fatalf("expected torrent name in detail view, got edits: %v", sender.editTexts())
 	}
-	if !sender.hasEditText("downloading") {
-		t.Fatalf("expected state in detail view")
+	if !sender.hasEditText("⬇️ Downloading") {
+		t.Fatalf("expected mapped state label in detail view")
 	}
 }
 

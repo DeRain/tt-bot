@@ -80,8 +80,8 @@ func TestFormatTorrentList_ContainsTorrentDetails(t *testing.T) {
 	if !strings.Contains(msg, "Ubuntu 24.04") {
 		t.Errorf("expected torrent name in message")
 	}
-	if !strings.Contains(msg, "downloading") {
-		t.Errorf("expected torrent state in message")
+	if !strings.Contains(msg, "⬇️ Downloading") {
+		t.Errorf("expected mapped torrent state in message")
 	}
 	// Progress bar should contain block characters.
 	if !strings.Contains(msg, "█") {
@@ -391,8 +391,8 @@ func TestFormatTorrentDetail(t *testing.T) {
 	if !strings.Contains(text, "2.0 GB") {
 		t.Error("expected formatted size")
 	}
-	if !strings.Contains(text, "downloading") {
-		t.Error("expected state")
+	if !strings.Contains(text, "⬇️ Downloading") {
+		t.Error("expected mapped state label")
 	}
 	if !strings.Contains(text, "linux") {
 		t.Error("expected category")
@@ -528,6 +528,92 @@ func TestTorrentSelectionKeyboard_CallbackDataUnderLimit(t *testing.T) {
 					btn.CallbackData, len(btn.CallbackData), formatter.MaxCallbackData)
 			}
 		}
+	}
+}
+
+// ---- FormatState (status-emojis: TASK-1, TEST-1) ---------------------------
+
+func TestFormatState(t *testing.T) {
+	cases := []struct {
+		state string
+		want  string
+	}{
+		// All 19 documented states
+		{"error", "❌ Error"},
+		{"missingFiles", "⚠️ Missing Files"},
+		{"uploading", "🌱 Seeding"},
+		{"pausedUP", "⏸️ Paused (Seeding)"},
+		{"queuedUP", "🕐 Queued (Seeding)"},
+		{"stalledUP", "🌱 Seeding (stalled)"},
+		{"checkingUP", "🔍 Checking"},
+		{"forcedUP", "⏫ Force Seeding"},
+		{"allocating", "💾 Allocating"},
+		{"downloading", "⬇️ Downloading"},
+		{"metaDL", "🔎 Fetching Metadata"},
+		{"pausedDL", "⏸️ Paused (Downloading)"},
+		{"queuedDL", "🕐 Queued (Downloading)"},
+		{"stalledDL", "⬇️ Downloading (stalled)"},
+		{"checkingDL", "🔍 Checking"},
+		{"forcedDL", "⏬ Force Downloading"},
+		{"checkingResumeData", "🔍 Checking"},
+		{"moving", "📦 Moving"},
+		{"unknown", "❓ Unknown"},
+	}
+	for _, c := range cases {
+		got := formatter.FormatState(c.state)
+		if got != c.want {
+			t.Errorf("FormatState(%q) = %q, want %q", c.state, got, c.want)
+		}
+	}
+}
+
+func TestFormatState_Fallback(t *testing.T) {
+	// Unrecognized state should return "❓ <state>"
+	got := formatter.FormatState("newStateFromFuture")
+	if got != "❓ newStateFromFuture" {
+		t.Errorf("FormatState(unrecognized) = %q, want %q", got, "❓ newStateFromFuture")
+	}
+
+	// Empty string fallback
+	got = formatter.FormatState("")
+	if got != "❓ " {
+		t.Errorf("FormatState(\"\") = %q, want %q", got, "❓ ")
+	}
+}
+
+// ---- FormatTorrentList with mapped states (status-emojis: TASK-2, TEST-2) --
+
+func TestFormatTorrentList_UsesMappedState(t *testing.T) {
+	torrents := []qbt.Torrent{
+		makeTorrent("Test Torrent", 0.5, 1024, 512, "stalledDL"),
+	}
+	msg := formatter.FormatTorrentList(torrents, 1, 1)
+
+	if !strings.Contains(msg, "⬇️ Downloading (stalled)") {
+		t.Errorf("expected mapped state label in list, got: %s", msg)
+	}
+	// Raw state should not appear (except as substring of the label — "stalledDL" won't match "Downloading (stalled)")
+	if strings.Contains(msg, "stalledDL") {
+		t.Errorf("raw state 'stalledDL' should not appear in list output")
+	}
+}
+
+func TestFormatTorrentDetail_UsesMappedState(t *testing.T) {
+	torrent := qbt.Torrent{
+		Hash:     "abc123",
+		Name:     "Test Torrent",
+		State:    "pausedUP",
+		Progress: 1.0,
+		Size:     1024 * 1024 * 1024,
+		Category: "test",
+	}
+	text := formatter.FormatTorrentDetail(torrent)
+
+	if !strings.Contains(text, "⏸️ Paused (Seeding)") {
+		t.Errorf("expected mapped state label in detail, got: %s", text)
+	}
+	if strings.Contains(text, "pausedUP") {
+		t.Errorf("raw state 'pausedUP' should not appear in detail output")
 	}
 }
 
