@@ -1,6 +1,7 @@
 package formatter_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -507,9 +508,9 @@ func TestTorrentDetailKeyboard_AlwaysBothButtons(t *testing.T) {
 	for _, state := range states {
 		kb := formatter.TorrentDetailKeyboard(hash, "a", 1, state)
 
-		// Now 3 rows: [Pause|Start], [Remove], [Back].
-		if len(kb) != 3 {
-			t.Fatalf("state %q: expected 3 rows, got %d", state, len(kb))
+		// Now 4 rows: [Pause|Start], [Files], [Remove], [Back].
+		if len(kb) != 4 {
+			t.Fatalf("state %q: expected 4 rows, got %d", state, len(kb))
 		}
 
 		// Row 1: both Pause and Start buttons side by side.
@@ -532,17 +533,25 @@ func TestTorrentDetailKeyboard_AlwaysBothButtons(t *testing.T) {
 			t.Errorf("state %q: expected re: prefix, got %q", state, row[1].CallbackData)
 		}
 
-		// Row 2: Remove button (AC-1.1, AC-1.2).
-		if !strings.Contains(kb[1][0].Text, "Remove") {
-			t.Errorf("state %q: expected Remove button in row 2, got %q", state, kb[1][0].Text)
+		// Row 2: Files button (AC-5.1).
+		if !strings.Contains(kb[1][0].Text, "Files") {
+			t.Errorf("state %q: expected Files button in row 2, got %q", state, kb[1][0].Text)
 		}
-		if !strings.HasPrefix(kb[1][0].CallbackData, "rm:") {
-			t.Errorf("state %q: expected rm: prefix, got %q", state, kb[1][0].CallbackData)
+		if !strings.HasPrefix(kb[1][0].CallbackData, "fl:") {
+			t.Errorf("state %q: expected fl: prefix, got %q", state, kb[1][0].CallbackData)
 		}
 
-		// Row 3: Back button.
-		if !strings.Contains(kb[2][0].Text, "Back") {
-			t.Errorf("state %q: expected Back button, got %q", state, kb[2][0].Text)
+		// Row 3: Remove button (AC-1.1, AC-1.2).
+		if !strings.Contains(kb[2][0].Text, "Remove") {
+			t.Errorf("state %q: expected Remove button in row 3, got %q", state, kb[2][0].Text)
+		}
+		if !strings.HasPrefix(kb[2][0].CallbackData, "rm:") {
+			t.Errorf("state %q: expected rm: prefix, got %q", state, kb[2][0].CallbackData)
+		}
+
+		// Row 4: Back button.
+		if !strings.Contains(kb[3][0].Text, "Back") {
+			t.Errorf("state %q: expected Back button, got %q", state, kb[3][0].Text)
 		}
 	}
 }
@@ -552,11 +561,11 @@ func TestTorrentDetailKeyboard_RemoveCallbackFitsLimit(t *testing.T) {
 	hash := strings.Repeat("f", 40)
 	kb := formatter.TorrentDetailKeyboard(hash, "a", 99, "downloading")
 
-	// Find the Remove button in row 2.
-	if len(kb) < 2 {
-		t.Fatal("expected at least 2 rows in detail keyboard")
+	// Find the Remove button in row 3 (index 2).
+	if len(kb) < 3 {
+		t.Fatal("expected at least 3 rows in detail keyboard")
 	}
-	removeBtn := kb[1][0]
+	removeBtn := kb[2][0]
 	if !strings.HasPrefix(removeBtn.CallbackData, "rm:") {
 		t.Fatalf("expected rm: prefix, got %q", removeBtn.CallbackData)
 	}
@@ -812,6 +821,329 @@ func TestAllCallbackDataUnderLimit(t *testing.T) {
 		for _, btn := range row {
 			if len(btn.CallbackData) > formatter.MaxCallbackData {
 				t.Errorf("PaginationKeyboard callback %q exceeds limit", btn.CallbackData)
+			}
+		}
+	}
+}
+
+// ---- TorrentDetailKeyboard Files button (TEST-5, AC-5.1) -------------------
+
+func TestTorrentDetailKeyboard_FilesButton(t *testing.T) {
+	hash := strings.Repeat("a", 40)
+	kb := formatter.TorrentDetailKeyboard(hash, "a", 1, "downloading")
+
+	// Row 2 must be the Files button.
+	if len(kb) < 2 {
+		t.Fatal("expected at least 2 rows in detail keyboard")
+	}
+	filesBtn := kb[1][0]
+	if !strings.Contains(filesBtn.Text, "Files") {
+		t.Errorf("expected Files button in row 2, got %q", filesBtn.Text)
+	}
+	if !strings.HasPrefix(filesBtn.CallbackData, "fl:") {
+		t.Errorf("expected fl: prefix on Files button, got %q", filesBtn.CallbackData)
+	}
+	if len(filesBtn.CallbackData) > formatter.MaxCallbackData {
+		t.Errorf("fl: callback %q (%d bytes) exceeds %d limit",
+			filesBtn.CallbackData, len(filesBtn.CallbackData), formatter.MaxCallbackData)
+	}
+}
+
+// ---- PriorityLabel (TEST-3, AC-6.1–AC-6.4) ---------------------------------
+
+func TestPriorityLabel(t *testing.T) {
+	cases := []struct {
+		p    qbt.FilePriority
+		want string
+	}{
+		{qbt.FilePrioritySkip, "Skip"},
+		{qbt.FilePriorityNormal, "Normal"},
+		{qbt.FilePriorityHigh, "High"},
+		{qbt.FilePriorityMaximum, "Max"},
+		{qbt.FilePriority(4), "Mixed"}, // sentinel for mixed priority
+	}
+	for _, c := range cases {
+		got := formatter.PriorityLabel(c.p)
+		if got != c.want {
+			t.Errorf("PriorityLabel(%d) = %q, want %q", c.p, got, c.want)
+		}
+	}
+}
+
+// ---- FormatFileList (TEST-3) ------------------------------------------------
+
+func makeFiles(n int) []qbt.TorrentFile {
+	files := make([]qbt.TorrentFile, n)
+	for i := range files {
+		files[i] = qbt.TorrentFile{
+			Index:    i,
+			Name:     fmt.Sprintf("Season 1/Episode %02d.mkv", i+1),
+			Size:     1024 * 1024 * 1024,
+			Progress: 0.5,
+			Priority: qbt.FilePriorityNormal,
+		}
+	}
+	return files
+}
+
+func TestFormatFileList_ContainsHeader(t *testing.T) {
+	files := makeFiles(3)
+	msg := formatter.FormatFileList("My Torrent", files, 1, 1)
+
+	if !strings.Contains(msg, "My Torrent") {
+		t.Errorf("expected torrent name in header, got: %q", msg)
+	}
+	// No page indicator for single page.
+	if strings.Contains(msg, "Page 1/1") {
+		t.Errorf("page indicator should not appear for single page")
+	}
+}
+
+func TestFormatFileList_PageIndicatorMultiPage(t *testing.T) {
+	files := makeFiles(3)
+	msg := formatter.FormatFileList("My Torrent", files, 1, 3)
+
+	if !strings.Contains(msg, "Page 1/3") {
+		t.Errorf("expected page indicator for multi-page, got: %q", msg)
+	}
+}
+
+func TestFormatFileList_ShowsLastPathComponent(t *testing.T) {
+	files := []qbt.TorrentFile{
+		{Index: 0, Name: "Season 1/ep01.mkv", Size: 500 * 1024 * 1024, Progress: 0.0, Priority: qbt.FilePrioritySkip},
+	}
+	msg := formatter.FormatFileList("TorrentX", files, 1, 1)
+
+	if strings.Contains(msg, "Season 1/") {
+		t.Errorf("should show only last path component, got: %q", msg)
+	}
+	if !strings.Contains(msg, "ep01.mkv") {
+		t.Errorf("expected last path component in output, got: %q", msg)
+	}
+}
+
+func TestFormatFileList_TruncatesLongFileName(t *testing.T) {
+	longBaseName := strings.Repeat("A", 50)
+	files := []qbt.TorrentFile{
+		{Index: 0, Name: "dir/" + longBaseName, Size: 1024, Progress: 1.0, Priority: qbt.FilePriorityNormal},
+	}
+	msg := formatter.FormatFileList("T", files, 1, 1)
+
+	// The full 50-char name should not appear; truncated (40 chars with ellipsis) should.
+	if strings.Contains(msg, longBaseName) {
+		t.Errorf("long file name should be truncated, got: %q", msg)
+	}
+	if !strings.Contains(msg, "…") {
+		t.Errorf("expected ellipsis after truncation, got: %q", msg)
+	}
+}
+
+func TestFormatFileList_ShowsPriorityLabel(t *testing.T) {
+	files := []qbt.TorrentFile{
+		{Index: 0, Name: "file.mkv", Size: 1024, Progress: 0.5, Priority: qbt.FilePrioritySkip},
+	}
+	msg := formatter.FormatFileList("T", files, 1, 1)
+
+	if !strings.Contains(msg, "Skip") {
+		t.Errorf("expected priority label in output, got: %q", msg)
+	}
+}
+
+func TestFormatFileList_MessageUnderLimit(t *testing.T) {
+	files := makeFiles(formatter.FilesPerPage)
+	// Use long names to stress-test length.
+	for i := range files {
+		files[i].Name = "verylongdirname/" + strings.Repeat("X", 50)
+	}
+	msg := formatter.FormatFileList(strings.Repeat("T", 40), files, 1, 1)
+
+	if len(msg) >= formatter.MaxMessageLength {
+		t.Errorf("file list message %d chars exceeds MaxMessageLength %d", len(msg), formatter.MaxMessageLength)
+	}
+}
+
+// ---- FileListKeyboard (TEST-4) ---------------------------------------------
+
+func TestFileListKeyboard_FileButtons(t *testing.T) {
+	hash := strings.Repeat("a", 40)
+	files := makeFiles(3)
+	kb := formatter.FileListKeyboard(files, hash, 0, 1, 1, "a", 1)
+
+	// 3 file buttons + 1 back button (no pagination for single page).
+	if len(kb) != 4 {
+		t.Fatalf("expected 4 rows (3 files + back), got %d", len(kb))
+	}
+
+	for i, row := range kb[:3] {
+		btn := row[0]
+		if !strings.HasPrefix(btn.CallbackData, "fs:") {
+			t.Errorf("row %d: expected fs: prefix, got %q", i, btn.CallbackData)
+		}
+		if len(btn.CallbackData) > formatter.MaxCallbackData {
+			t.Errorf("row %d: fs: callback %q (%d bytes) exceeds limit", i, btn.CallbackData, len(btn.CallbackData))
+		}
+	}
+}
+
+func TestFileListKeyboard_PaginationButtons_FirstPage(t *testing.T) {
+	hash := strings.Repeat("b", 40)
+	files := makeFiles(5)
+	// 2 total pages → pagination row present.
+	kb := formatter.FileListKeyboard(files, hash, 0, 1, 2, "a", 1)
+
+	// Find pagination row (should have Next but no Prev).
+	found := false
+	for _, row := range kb {
+		for _, btn := range row {
+			if strings.HasPrefix(btn.CallbackData, "pg:fl:") {
+				found = true
+				if strings.Contains(btn.Text, "Prev") {
+					t.Errorf("first page should not have Prev button")
+				}
+			}
+		}
+	}
+	if !found {
+		t.Errorf("expected pg:fl: pagination button on multi-page list")
+	}
+}
+
+func TestFileListKeyboard_PaginationButtons_MiddlePage(t *testing.T) {
+	hash := strings.Repeat("c", 40)
+	files := makeFiles(5)
+	kb := formatter.FileListKeyboard(files, hash, 5, 2, 3, "a", 1)
+
+	hasPrev, hasNext := false, false
+	for _, row := range kb {
+		for _, btn := range row {
+			if strings.HasPrefix(btn.CallbackData, "pg:fl:") {
+				if strings.Contains(btn.Text, "Prev") {
+					hasPrev = true
+				}
+				if strings.Contains(btn.Text, "Next") {
+					hasNext = true
+				}
+			}
+		}
+	}
+	if !hasPrev {
+		t.Errorf("middle page should have Prev button")
+	}
+	if !hasNext {
+		t.Errorf("middle page should have Next button")
+	}
+}
+
+func TestFileListKeyboard_NoPageButtons_SinglePage(t *testing.T) {
+	hash := strings.Repeat("d", 40)
+	files := makeFiles(3)
+	kb := formatter.FileListKeyboard(files, hash, 0, 1, 1, "a", 1)
+
+	for _, row := range kb {
+		for _, btn := range row {
+			if strings.HasPrefix(btn.CallbackData, "pg:fl:") {
+				t.Errorf("single page list should not have pg:fl: buttons, got %q", btn.CallbackData)
+			}
+		}
+	}
+}
+
+func TestFileListKeyboard_BackButton(t *testing.T) {
+	hash := strings.Repeat("e", 40)
+	files := makeFiles(2)
+	kb := formatter.FileListKeyboard(files, hash, 0, 1, 1, "a", 1)
+
+	lastRow := kb[len(kb)-1]
+	if !strings.HasPrefix(lastRow[0].CallbackData, "bk:fl:") {
+		t.Errorf("last button should be bk:fl: back button, got %q", lastRow[0].CallbackData)
+	}
+	if len(lastRow[0].CallbackData) > formatter.MaxCallbackData {
+		t.Errorf("bk:fl: callback %q (%d bytes) exceeds limit", lastRow[0].CallbackData, len(lastRow[0].CallbackData))
+	}
+}
+
+func TestFileListKeyboard_AllCallbacksUnderLimit(t *testing.T) {
+	hash := strings.Repeat("f", 40)
+	files := makeFiles(formatter.FilesPerPage)
+	kb := formatter.FileListKeyboard(files, hash, 0, 1, 999, "a", 999)
+
+	for _, row := range kb {
+		for _, btn := range row {
+			if btn.CallbackData != "noop" && len(btn.CallbackData) > formatter.MaxCallbackData {
+				t.Errorf("callback %q (%d bytes) exceeds %d limit",
+					btn.CallbackData, len(btn.CallbackData), formatter.MaxCallbackData)
+			}
+		}
+	}
+}
+
+// ---- PriorityKeyboard (TEST-4) ---------------------------------------------
+
+func TestPriorityKeyboard_FourPriorityOptions(t *testing.T) {
+	hash := strings.Repeat("a", 40)
+	kb := formatter.PriorityKeyboard(hash, 0, qbt.FilePriorityNormal, 1, "a", 1)
+
+	// 4 priority buttons + 1 back button.
+	if len(kb) != 5 {
+		t.Fatalf("expected 5 rows (4 priorities + back), got %d", len(kb))
+	}
+
+	fpCount := 0
+	for _, row := range kb[:4] {
+		btn := row[0]
+		if !strings.HasPrefix(btn.CallbackData, "fp:") {
+			t.Errorf("expected fp: prefix, got %q", btn.CallbackData)
+		}
+		if len(btn.CallbackData) > formatter.MaxCallbackData {
+			t.Errorf("fp: callback %q (%d bytes) exceeds limit", btn.CallbackData, len(btn.CallbackData))
+		}
+		fpCount++
+	}
+	if fpCount != 4 {
+		t.Errorf("expected 4 fp: buttons, got %d", fpCount)
+	}
+}
+
+func TestPriorityKeyboard_CurrentMarkedWithCheckmark(t *testing.T) {
+	hash := strings.Repeat("a", 40)
+	kb := formatter.PriorityKeyboard(hash, 0, qbt.FilePriorityHigh, 1, "a", 1)
+
+	checkedCount := 0
+	for _, row := range kb[:4] {
+		if strings.HasPrefix(row[0].Text, "✓") {
+			checkedCount++
+			if !strings.Contains(row[0].Text, "High") {
+				t.Errorf("checkmark should be on High option, got %q", row[0].Text)
+			}
+		}
+	}
+	if checkedCount != 1 {
+		t.Errorf("expected exactly 1 checkmark, got %d", checkedCount)
+	}
+}
+
+func TestPriorityKeyboard_BackButtonIsPgFL(t *testing.T) {
+	hash := strings.Repeat("a", 40)
+	kb := formatter.PriorityKeyboard(hash, 3, qbt.FilePrioritySkip, 2, "d", 4)
+
+	backBtn := kb[len(kb)-1][0]
+	if !strings.HasPrefix(backBtn.CallbackData, "pg:fl:") {
+		t.Errorf("back button should use pg:fl: callback, got %q", backBtn.CallbackData)
+	}
+	if len(backBtn.CallbackData) > formatter.MaxCallbackData {
+		t.Errorf("back callback %q (%d bytes) exceeds limit", backBtn.CallbackData, len(backBtn.CallbackData))
+	}
+}
+
+func TestPriorityKeyboard_AllCallbacksUnderLimit(t *testing.T) {
+	hash := strings.Repeat("f", 40)
+	kb := formatter.PriorityKeyboard(hash, 99999, qbt.FilePriorityMaximum, 999, "a", 999)
+
+	for _, row := range kb {
+		for _, btn := range row {
+			if btn.CallbackData != "noop" && len(btn.CallbackData) > formatter.MaxCallbackData {
+				t.Errorf("callback %q (%d bytes) exceeds %d limit",
+					btn.CallbackData, len(btn.CallbackData), formatter.MaxCallbackData)
 			}
 		}
 	}

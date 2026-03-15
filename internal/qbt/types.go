@@ -52,3 +52,28 @@ type ListOptions struct {
 	// Offset is the zero-based index of the first torrent to return.
 	Offset int
 }
+
+// FilePriority represents a qBittorrent per-file download priority.
+// The zero value (FilePrioritySkip) means the file will not be downloaded.
+type FilePriority int
+
+const (
+	// FilePrioritySkip means the file will be skipped (not downloaded).
+	FilePrioritySkip FilePriority = 0
+	// FilePriorityNormal is the default download priority.
+	FilePriorityNormal FilePriority = 1
+	// FilePriorityHigh gives a file higher priority than normal files.
+	FilePriorityHigh FilePriority = 6
+	// FilePriorityMaximum gives a file the highest possible download priority.
+	FilePriorityMaximum FilePriority = 7
+)
+
+// TorrentFile represents a single file within a torrent as returned by the
+// qBittorrent files API. All fields are read-only; the struct is immutable.
+type TorrentFile struct {
+	Index    int          `json:"index"`
+	Name     string       `json:"name"`
+	Size     int64        `json:"size"`
+	Progress float64      `json:"progress"`
+	Priority FilePriority `json:"priority"`
+}

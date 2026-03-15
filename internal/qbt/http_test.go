@@ -581,3 +581,129 @@ func TestAutoReauth_On403(t *testing.T) {
 		t.Errorf("torrentCallCount = %d, want 2 (403 + retry)", torrentCallCount)
 	}
 }
+
+// --- ListFiles tests (TEST-2, TASK-3) ----------------------------------------
+
+// TestListFiles_ParsesResponse verifies that ListFiles correctly deserialises
+// the JSON array returned by /api/v2/torrents/files.
+func TestListFiles_ParsesResponse(t *testing.T) {
+	const (
+		sid  = "sid-lf"
+		hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	)
+	want := []TorrentFile{
+		{Index: 0, Name: "Season 1/ep01.mkv", Size: 1073741824, Progress: 0.5, Priority: FilePriorityNormal},
+		{Index: 1, Name: "Season 1/ep02.mkv", Size: 734003200, Progress: 0.0, Priority: FilePrioritySkip},
+	}
+
+	var gotQuery url.Values
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/auth/login", loginHandler(sid))
+	mux.HandleFunc("/api/v2/torrents/files", func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.Query()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(want)
+	})
+
+	_, client := newTestServer(t, mux)
+	_ = client.Login(context.Background())
+
+	got, err := client.ListFiles(context.Background(), hash)
+	if err != nil {
+		t.Fatalf("ListFiles() error = %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("len = %d, want 2", len(got))
+	}
+	if got[0].Name != want[0].Name || got[0].Priority != want[0].Priority {
+		t.Errorf("got[0] = %+v, want %+v", got[0], want[0])
+	}
+	if got[1].Priority != FilePrioritySkip {
+		t.Errorf("got[1].Priority = %d, want %d (Skip)", got[1].Priority, FilePrioritySkip)
+	}
+	if gotQuery.Get("hash") != hash {
+		t.Errorf("hash query param = %q, want %q", gotQuery.Get("hash"), hash)
+	}
+}
+
+// TestListFiles_ErrorOnNon200 verifies that ListFiles returns a non-nil error
+// when the server responds with a non-200 status.
+func TestListFiles_ErrorOnNon200(t *testing.T) {
+	const sid = "sid-lf-err"
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/auth/login", loginHandler(sid))
+	mux.HandleFunc("/api/v2/torrents/files", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+
+	_, client := newTestServer(t, mux)
+	_ = client.Login(context.Background())
+
+	_, err := client.ListFiles(context.Background(), "somehash")
+	if err == nil {
+		t.Fatal("expected error for non-200 response, got nil")
+	}
+}
+
+// --- SetFilePriority tests (TEST-2, TASK-3) -----------------------------------
+
+// TestSetFilePriority_SendsCorrectForm verifies that SetFilePriority sends a
+// POST to /api/v2/torrents/filePrio with the correct hash, id, and priority fields.
+func TestSetFilePriority_SendsCorrectForm(t *testing.T) {
+	const (
+		sid  = "sid-sfp"
+		hash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	)
+
+	var gotBody string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/auth/login", loginHandler(sid))
+	mux.HandleFunc("/api/v2/torrents/filePrio", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %q, want POST", r.Method)
+		}
+		body, _ := io.ReadAll(r.Body)
+		gotBody = string(body)
+		w.WriteHeader(http.StatusOK)
+	})
+
+	_, client := newTestServer(t, mux)
+	_ = client.Login(context.Background())
+
+	err := client.SetFilePriority(context.Background(), hash, []int{0, 2}, FilePriorityHigh)
+	if err != nil {
+		t.Fatalf("SetFilePriority() error = %v", err)
+	}
+
+	parsed, _ := url.ParseQuery(gotBody)
+	if got := parsed.Get("hash"); got != hash {
+		t.Errorf("hash = %q, want %q", got, hash)
+	}
+	if got := parsed.Get("id"); got != "0|2" {
+		t.Errorf("id = %q, want %q", got, "0|2")
+	}
+	if got := parsed.Get("priority"); got != "6" {
+		t.Errorf("priority = %q, want %q", got, "6")
+	}
+}
+
+// TestSetFilePriority_ErrorOnNon200 verifies that SetFilePriority returns a
+// non-nil error when the server responds with a non-200 status.
+func TestSetFilePriority_ErrorOnNon200(t *testing.T) {
+	const sid = "sid-sfp-err"
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/auth/login", loginHandler(sid))
+	mux.HandleFunc("/api/v2/torrents/filePrio", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+	})
+
+	_, client := newTestServer(t, mux)
+	_ = client.Login(context.Background())
+
+	err := client.SetFilePriority(context.Background(), "hash", []int{0}, FilePrioritySkip)
+	if err == nil {
+		t.Fatal("expected error for non-200 response, got nil")
+	}
+}

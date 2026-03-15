@@ -379,6 +379,73 @@ func (c *HTTPClient) DeleteTorrents(ctx context.Context, hashes []string, delete
 	return nil
 }
 
+// ListFiles returns all files contained within the torrent identified by hash.
+func (c *HTTPClient) ListFiles(ctx context.Context, hash string) ([]TorrentFile, error) {
+	u, err := url.Parse(c.baseURL + "/api/v2/torrents/files")
+	if err != nil {
+		return nil, fmt.Errorf("qbt list files: parse URL: %w", err)
+	}
+
+	q := u.Query()
+	q.Set("hash", hash)
+	u.RawQuery = q.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("qbt list files: build request: %w", err)
+	}
+
+	resp, err := c.doWithAuth(req)
+	if err != nil {
+		return nil, fmt.Errorf("qbt list files: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("qbt list files: unexpected status %d", resp.StatusCode)
+	}
+
+	var files []TorrentFile
+	if err := json.NewDecoder(resp.Body).Decode(&files); err != nil {
+		return nil, fmt.Errorf("qbt list files: decode response: %w", err)
+	}
+	return files, nil
+}
+
+// SetFilePriority sets the download priority for the given file indices within
+// the torrent identified by hash.
+func (c *HTTPClient) SetFilePriority(ctx context.Context, hash string, fileIndices []int, priority FilePriority) error {
+	indices := make([]string, len(fileIndices))
+	for i, idx := range fileIndices {
+		indices[i] = strconv.Itoa(idx)
+	}
+
+	form := url.Values{}
+	form.Set("hash", hash)
+	form.Set("id", strings.Join(indices, "|"))
+	form.Set("priority", strconv.Itoa(int(priority)))
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		c.baseURL+"/api/v2/torrents/filePrio",
+		strings.NewReader(form.Encode()),
+	)
+	if err != nil {
+		return fmt.Errorf("qbt set file priority: build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := c.doWithAuth(req)
+	if err != nil {
+		return fmt.Errorf("qbt set file priority: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("qbt set file priority: unexpected status %d", resp.StatusCode)
+	}
+	return nil
+}
+
 // Categories returns all configured categories sorted by name.
 func (c *HTTPClient) Categories(ctx context.Context) ([]Category, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,

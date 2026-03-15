@@ -81,6 +81,20 @@ type mockQBTClient struct {
 	deleteErr     error
 	deletedHashes []string
 	deletedFiles  bool
+
+	// torrentFiles maps torrent hash to the list of files returned by ListFiles.
+	torrentFiles       map[string][]qbt.TorrentFile
+	listFilesErr       error
+	setFilePriorityErr error
+	// setPriorityRecords tracks calls made to SetFilePriority.
+	setPriorityRecords []setPriorityCall
+}
+
+// setPriorityCall records a single call to SetFilePriority.
+type setPriorityCall struct {
+	hash     string
+	indices  []int
+	priority qbt.FilePriority
 }
 
 func (m *mockQBTClient) Login(_ context.Context) error { return m.loginErr }
@@ -138,6 +152,28 @@ func (m *mockQBTClient) DeleteTorrents(_ context.Context, hashes []string, delet
 	}
 	m.deletedHashes = append(m.deletedHashes, hashes...)
 	m.deletedFiles = deleteFiles
+	return nil
+}
+
+func (m *mockQBTClient) ListFiles(_ context.Context, hash string) ([]qbt.TorrentFile, error) {
+	if m.listFilesErr != nil {
+		return nil, m.listFilesErr
+	}
+	if m.torrentFiles != nil {
+		return m.torrentFiles[hash], nil
+	}
+	return nil, nil
+}
+
+func (m *mockQBTClient) SetFilePriority(_ context.Context, hash string, fileIndices []int, priority qbt.FilePriority) error {
+	if m.setFilePriorityErr != nil {
+		return m.setFilePriorityErr
+	}
+	m.setPriorityRecords = append(m.setPriorityRecords, setPriorityCall{
+		hash:     hash,
+		indices:  fileIndices,
+		priority: priority,
+	})
 	return nil
 }
 
