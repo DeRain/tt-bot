@@ -8,83 +8,204 @@ A stateless Telegram bot for managing qBittorrent downloads.
 - **Category selection** — pick a qBittorrent category via inline keyboard before adding
 - **List torrents** — paginated views of all or active downloads
 - **Completion notifications** — get notified when a download finishes
-- **Access control** — whitelist Telegram users by ID
+- **Access control** — whitelist Telegram users by numeric ID
 
-## Quick Start
+## Prerequisites
 
-### Prerequisites
+- **Go 1.22+** — required only if building from source
+- **Docker & Docker Compose** — for the recommended Docker setup (includes qBittorrent)
+- **A Telegram bot token** — from [@BotFather](https://t.me/BotFather) (see [Step 1](#step-1-create-a-telegram-bot))
+- **A running qBittorrent instance** with **WebUI enabled** and **login credentials configured** (see [Step 3](#step-3-set-up-qbittorrent)) — not needed if using Docker Compose
 
-- Go 1.22+ (for local development)
-- Docker & Docker Compose (for production or integration tests)
-- A Telegram bot token from [@BotFather](https://t.me/BotFather)
-- A running qBittorrent instance with WebUI enabled
+## Setup Guide
 
-### Configuration
+### Step 1: Create a Telegram Bot
 
-Copy `.env.example` to `.env` and fill in your values:
+1. Open [@BotFather](https://t.me/BotFather) in Telegram.
+2. Send `/newbot` and follow the prompts to choose a name and username.
+3. Copy the **bot token** BotFather gives you — you'll need it for configuration.
+
+<p align="center">
+  <img src="docs/images/botfather-token.png" alt="BotFather in Telegram showing the My Bots list" width="400">
+</p>
+
+> **Important:** The bot does **not** auto-register its commands with Telegram. You must configure them manually:
+
+4. Send `/setcommands` to @BotFather.
+5. Select your bot.
+6. Paste the following command list:
+
+```
+list - List all torrents (paginated)
+active - List active downloads (paginated)
+help - Show help message
+```
+
+This enables command autocompletion in the Telegram chat input.
+
+<p align="center">
+  <img src="docs/images/botfather-commands.png" alt="BotFather Commands screen showing /list, /active, and /help configured" width="400">
+</p>
+
+### Step 2: Get Your Telegram User ID
+
+The bot uses a whitelist of numeric Telegram user IDs. Usernames are **not** supported — you need your numeric ID.
+
+**How to find it:**
+
+1. Open Telegram and search for [@userinfobot](https://t.me/userinfobot).
+2. Send it any message (or just `/start`).
+3. It replies with your numeric user ID (e.g., `123456789`).
+
+Alternatively, use [@raw_data_bot](https://t.me/raw_data_bot) — forward any message to it and it will show the sender's user ID.
+
+<p align="center">
+  <img src="docs/images/userinfobot-id.png" alt="@userinfobot profile in Telegram — message it to get your numeric user ID" width="400">
+</p>
+
+### Step 3: Set Up qBittorrent
+
+> **Skip this step if using Docker Compose** — it includes qBittorrent automatically.
+
+1. Install qBittorrent from [qbittorrent.org](https://www.qbittorrent.org/download).
+2. Open qBittorrent and go to **Tools > Options > Web UI** (or **Preferences > Web UI** on macOS).
+3. Check **"Web User Interface (Remote control)"** to enable the WebUI.
+4. Set a **username** and **password** — these become your `QBITTORRENT_USERNAME` and `QBITTORRENT_PASSWORD` env vars.
+5. Note the listening port (default: `8080`). Your `QBITTORRENT_URL` will be `http://localhost:8080`.
+
+<p align="center">
+  <img src="docs/images/qbittorrent-webui.png" alt="qBittorrent Options — Web UI tab with Remote Control enabled, port 8080, and Authentication credentials" width="500">
+</p>
+
+### Step 4: Configure Environment Variables
+
+Copy the example file and fill in your values:
 
 ```bash
 cp .env.example .env
 ```
 
+Edit `.env` with your details:
+
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `TELEGRAM_BOT_TOKEN` | Yes | Bot token from @BotFather |
-| `TELEGRAM_ALLOWED_USERS` | Yes | Comma-separated Telegram user IDs |
-| `QBITTORRENT_URL` | Yes | WebUI URL (e.g. `http://localhost:8080`) |
-| `QBITTORRENT_USERNAME` | Yes | WebUI username |
-| `QBITTORRENT_PASSWORD` | Yes | WebUI password |
+| `TELEGRAM_BOT_TOKEN` | Yes | Bot token from @BotFather ([Step 1](#step-1-create-a-telegram-bot)) |
+| `TELEGRAM_ALLOWED_USERS` | Yes | Comma-separated numeric Telegram user IDs ([Step 2](#step-2-get-your-telegram-user-id)) |
+| `QBITTORRENT_URL` | Yes | WebUI URL, e.g. `http://localhost:8080` |
+| `QBITTORRENT_USERNAME` | Yes | WebUI username configured in qBittorrent |
+| `QBITTORRENT_PASSWORD` | Yes | WebUI password configured in qBittorrent |
 | `POLL_INTERVAL` | No | How often to check for completed downloads (default: `30s`) |
 
-### Run with Docker Compose
+> When using Docker Compose, `QBITTORRENT_URL` is overridden to `http://qbittorrent:8080` automatically.
+
+## Running the Bot
+
+### Option A: Docker Compose (Recommended)
+
+The easiest way to run everything — includes both qBittorrent and the bot:
 
 ```bash
 docker compose up --build
 ```
 
-This starts both qBittorrent and the bot. The bot connects to qBittorrent via Docker's internal network.
+This starts qBittorrent and the bot in containers connected via Docker's internal network. No separate qBittorrent installation needed.
 
-### Run locally
+### Option B: Build and Run Locally
+
+#### Linux
 
 ```bash
-# Export env vars
+# Install Go 1.22+ (https://go.dev/doc/install)
+# Download and extract the archive, then add to PATH
+
+# Clone and build
+git clone https://github.com/yourusername/tt-bot.git
+cd tt-bot
+go build -o tt-bot ./cmd/bot
+
+# Load environment variables
 set -a && source .env && set +a
 
 # Run
-go run ./cmd/bot/
+./tt-bot
 ```
 
-## Bot Commands
+#### macOS
+
+```bash
+# Install Go via Homebrew
+brew install go
+
+# Clone and build
+git clone https://github.com/yourusername/tt-bot.git
+cd tt-bot
+go build -o tt-bot ./cmd/bot
+
+# Load environment variables
+set -a && source .env && set +a
+
+# Run
+./tt-bot
+```
+
+#### Windows (PowerShell)
+
+```powershell
+# Install Go from https://go.dev/dl/ (use the MSI installer)
+
+# Clone and build
+git clone https://github.com/yourusername/tt-bot.git
+cd tt-bot
+go build -o tt-bot.exe ./cmd/bot
+
+# Load environment variables from .env
+Get-Content .env | ForEach-Object {
+    if ($_ -match '^\s*([^#][^=]+)=(.*)$') {
+        [System.Environment]::SetEnvironmentVariable($Matches[1].Trim(), $Matches[2].Trim(), 'Process')
+    }
+}
+
+# Run
+.\tt-bot.exe
+```
+
+## Bot Commands and Usage
+
+### Commands
 
 | Command | Description |
 |---------|-------------|
-| `/list` | List all torrents (paginated) |
-| `/active` | List active downloads (paginated) |
-| `/help` | Show help message |
+| `/list` | List all torrents with pagination |
+| `/active` | List active downloads with pagination |
+| `/help` | Show available commands and usage |
 
-You can also send:
-- A **magnet link** — the bot prompts you to pick a category, then adds it
-- A **.torrent file** — same flow as magnet links
+### Adding Torrents
+
+- **Magnet link** — paste a magnet URI into the chat. The bot prompts you to select a category, then adds the torrent.
+- **`.torrent` file** — send a `.torrent` file as a document. Same category selection flow as magnet links.
+
+### Completion Notifications
+
+The bot polls qBittorrent at a configurable interval (default: 30 seconds) and sends you a message when a download completes. This runs automatically in the background.
 
 ## Development
 
+### Make Targets
+
 ```bash
-make build          # Build
-make lint           # Lint with golangci-lint
-make test           # Unit tests with coverage
-make test-integration  # Integration + E2E tests against real qBittorrent in Docker
-make gate-all       # Full quality gate: build → lint → test
+make build            # go build ./...
+make lint             # golangci-lint run
+make test             # Unit tests with coverage (go test ./... -short -cover)
+make test-integration # Integration + E2E tests in Docker (spins up qBittorrent)
+make gate-all         # Full quality gate: build → lint → unit tests
+make clean            # Remove coverage.out and bot binary
 ```
 
-### Test Coverage
+### Running a Single Test
 
-| Package | Coverage |
-|---------|----------|
-| config | 91.3% |
-| formatter | 94.8% |
-| poller | 88.2% |
-| bot | 81.5% |
-| qbt | 77.6% |
+```bash
+go test ./internal/qbt/ -run TestLogin -short -v
+```
 
 ### Architecture
 
@@ -97,11 +218,18 @@ internal/formatter/    Message formatting within Telegram limits, pagination key
 internal/poller/       Background goroutine detecting completed downloads
 ```
 
-Key design decisions:
+### Key Design Decisions
+
 - **Stateless** — all state is in-memory and lost on restart (by design)
 - **Interface-driven** — `qbt.Client`, `bot.Sender`, `poller.Notifier` for testability
 - **Telegram-safe** — messages stay under 4096 chars, callback data under 64 bytes
 
-## License
+### Test Coverage
 
-MIT
+| Package | Coverage |
+|---------|----------|
+| config | 91.3% |
+| formatter | 94.8% |
+| poller | 88.2% |
+| bot | 81.5% |
+| qbt | 77.6% |
