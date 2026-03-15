@@ -11,8 +11,10 @@ import (
 // Sender abstracts Telegram message sending for testability.
 // The production implementation wraps *tgbotapi.BotAPI.
 type Sender interface {
-	// Send transmits any Chattable (message, edit, callback answer, etc.) to Telegram.
+	// Send transmits a Chattable that returns a Message (new messages, photos, etc.).
 	Send(msg tgbotapi.Chattable) (tgbotapi.Message, error)
+	// Request transmits a Chattable that returns a bool (callback answers, message edits).
+	Request(c tgbotapi.Chattable) (*tgbotapi.APIResponse, error)
 	// GetFile retrieves file metadata from Telegram so the caller can download the
 	// actual bytes via the file path returned in tgbotapi.File.FilePath.
 	GetFile(config tgbotapi.FileConfig) (tgbotapi.File, error)

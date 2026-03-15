@@ -334,21 +334,23 @@ func (h *Handler) takePending(chatID int64) *PendingTorrent {
 }
 
 // editMessageText replaces the text of an existing inline message.
+// Uses Request instead of Send because Telegram returns bool, not Message.
 func (h *Handler) editMessageText(chatID int64, messageID int, text string, kb *tgbotapi.InlineKeyboardMarkup) {
 	edit := tgbotapi.NewEditMessageText(chatID, messageID, text)
 	if kb != nil {
 		edit.ReplyMarkup = kb
 	}
-	if _, err := h.sender.Send(edit); err != nil {
-		log.Printf("bot: send error: %v", err)
+	if _, err := h.sender.Request(edit); err != nil {
+		log.Printf("bot: edit message error: %v", err)
 	}
 }
 
 // answerCallback dismisses the loading spinner on a callback query button.
+// Uses Request instead of Send because Telegram returns bool, not Message.
 func (h *Handler) answerCallback(callbackID string, text string) {
 	answer := tgbotapi.NewCallback(callbackID, text)
-	if _, err := h.sender.Send(answer); err != nil {
-		log.Printf("bot: send error: %v", err)
+	if _, err := h.sender.Request(answer); err != nil {
+		log.Printf("bot: answer callback error: %v", err)
 	}
 }
 

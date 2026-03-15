@@ -28,6 +28,11 @@ func (m *mockSender) Send(msg tgbotapi.Chattable) (tgbotapi.Message, error) {
 	return tgbotapi.Message{}, nil
 }
 
+func (m *mockSender) Request(c tgbotapi.Chattable) (*tgbotapi.APIResponse, error) {
+	m.sentMessages = append(m.sentMessages, c)
+	return &tgbotapi.APIResponse{Ok: true}, nil
+}
+
 func (m *mockSender) GetFile(config tgbotapi.FileConfig) (tgbotapi.File, error) {
 	return m.fileToReturn, m.fileErr
 }
