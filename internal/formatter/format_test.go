@@ -235,9 +235,9 @@ func TestPaginationKeyboard_MiddlePage_BothButtons(t *testing.T) {
 	}
 
 	wantCallbacks := map[string]string{
-		"<< Prev":   "pg:all:2",
-		"Page 3/5":  "noop",
-		"Next >>":   "pg:all:4",
+		"<< Prev":  "pg:all:2",
+		"Page 3/5": "noop",
+		"Next >>":  "pg:all:4",
 	}
 	for _, btn := range row {
 		want, ok := wantCallbacks[btn.Text]
@@ -327,12 +327,12 @@ func TestTotalPages(t *testing.T) {
 	cases := []struct {
 		total, perPage, want int
 	}{
-		{0, 5, 1},   // zero items → 1 page
-		{5, 5, 1},   // exact division
-		{6, 5, 2},   // one remainder
-		{10, 5, 2},  // exact division
-		{11, 5, 3},  // remainder
-		{1, 5, 1},   // fewer than one page
+		{0, 5, 1},  // zero items → 1 page
+		{5, 5, 1},  // exact division
+		{6, 5, 2},  // one remainder
+		{10, 5, 2}, // exact division
+		{11, 5, 3}, // remainder
+		{1, 5, 1},  // fewer than one page
 		{100, 10, 10},
 	}
 	for _, c := range cases {
@@ -365,34 +365,6 @@ func TestFormatSize(t *testing.T) {
 		got := formatter.FormatSize(c.input)
 		if got != c.want {
 			t.Errorf("FormatSize(%d) = %q, want %q", c.input, got, c.want)
-		}
-	}
-}
-
-// ---- IsPaused --------------------------------------------------------------
-
-func TestIsPaused(t *testing.T) {
-	cases := []struct {
-		state string
-		want  bool
-	}{
-		{"pausedDL", true},
-		{"pausedUP", true},
-		{"downloading", false},
-		{"seeding", false},
-		{"stalledDL", false},
-		{"stalledUP", false},
-		{"uploading", false},
-		{"queuedDL", false},
-		{"queuedUP", false},
-		{"error", false},
-		{"missingFiles", false},
-		{"", false},
-	}
-	for _, c := range cases {
-		got := formatter.IsPaused(c.state)
-		if got != c.want {
-			t.Errorf("IsPaused(%q) = %v, want %v", c.state, got, c.want)
 		}
 	}
 }
@@ -451,40 +423,48 @@ func TestFormatTorrentDetail_LongName(t *testing.T) {
 
 // ---- TorrentDetailKeyboard -------------------------------------------------
 
-func TestTorrentDetailKeyboard_Paused(t *testing.T) {
+func TestTorrentDetailKeyboard_AlwaysBothButtons(t *testing.T) {
+	states := []string{
+		"downloading", "uploading", "seeding",
+		"pausedDL", "pausedUP",
+		"stalledDL", "stalledUP",
+		"stoppedDL", "stoppedUP",
+		"queuedDL", "queuedUP",
+		"error", "missingFiles",
+	}
+
 	hash := strings.Repeat("a", 40)
-	kb := formatter.TorrentDetailKeyboard(hash, "a", 1, "pausedDL")
+	for _, state := range states {
+		kb := formatter.TorrentDetailKeyboard(hash, "a", 1, state)
 
-	if len(kb) != 2 {
-		t.Fatalf("expected 2 rows, got %d", len(kb))
-	}
+		if len(kb) != 2 {
+			t.Fatalf("state %q: expected 2 rows, got %d", state, len(kb))
+		}
 
-	// First row should be Resume button.
-	if !strings.Contains(kb[0][0].Text, "Resume") {
-		t.Errorf("expected Resume button, got %q", kb[0][0].Text)
-	}
-	if !strings.HasPrefix(kb[0][0].CallbackData, "re:") {
-		t.Errorf("expected re: prefix, got %q", kb[0][0].CallbackData)
-	}
+		// Row 1: both Pause and Start buttons side by side.
+		row := kb[0]
+		if len(row) != 2 {
+			t.Fatalf("state %q: expected 2 buttons in row 1, got %d", state, len(row))
+		}
 
-	// Second row should be Back button.
-	if !strings.Contains(kb[1][0].Text, "Back") {
-		t.Errorf("expected Back button, got %q", kb[1][0].Text)
-	}
-	if !strings.HasPrefix(kb[1][0].CallbackData, "bk:") {
-		t.Errorf("expected bk: prefix, got %q", kb[1][0].CallbackData)
-	}
-}
+		if !strings.Contains(row[0].Text, "Pause") {
+			t.Errorf("state %q: expected Pause button first, got %q", state, row[0].Text)
+		}
+		if !strings.HasPrefix(row[0].CallbackData, "pa:") {
+			t.Errorf("state %q: expected pa: prefix, got %q", state, row[0].CallbackData)
+		}
 
-func TestTorrentDetailKeyboard_Active(t *testing.T) {
-	hash := strings.Repeat("b", 40)
-	kb := formatter.TorrentDetailKeyboard(hash, "c", 3, "downloading")
+		if !strings.Contains(row[1].Text, "Start") {
+			t.Errorf("state %q: expected Start button second, got %q", state, row[1].Text)
+		}
+		if !strings.HasPrefix(row[1].CallbackData, "re:") {
+			t.Errorf("state %q: expected re: prefix, got %q", state, row[1].CallbackData)
+		}
 
-	if !strings.Contains(kb[0][0].Text, "Pause") {
-		t.Errorf("expected Pause button, got %q", kb[0][0].Text)
-	}
-	if !strings.HasPrefix(kb[0][0].CallbackData, "pa:") {
-		t.Errorf("expected pa: prefix, got %q", kb[0][0].CallbackData)
+		// Row 2: Back button.
+		if !strings.Contains(kb[1][0].Text, "Back") {
+			t.Errorf("state %q: expected Back button, got %q", state, kb[1][0].Text)
+		}
 	}
 }
 

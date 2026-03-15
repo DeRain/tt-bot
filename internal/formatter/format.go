@@ -138,7 +138,7 @@ func TotalPages(totalItems, perPage int) int {
 // Next buttons. filterPrefix must be "all" or "act".
 //
 // The Prev button is omitted when currentPage == 1; the Next button is omitted
-// when currentPage == totalPages. The centre button has callback data "noop".
+// when currentPage == totalPages. The center button has callback data "noop".
 func PaginationKeyboard(currentPage, totalPages int, filterPrefix string) Keyboard {
 	var row ButtonRow
 
@@ -189,11 +189,6 @@ func FormatSize(b int64) string {
 	}
 }
 
-// IsPaused returns true if the torrent state represents a paused condition.
-func IsPaused(state string) bool {
-	return state == "pausedDL" || state == "pausedUP"
-}
-
 // FormatTorrentDetail renders a single torrent's full metadata as a
 // Telegram-safe message string.
 func FormatTorrentDetail(t qbt.Torrent) string {
@@ -222,29 +217,24 @@ func FormatTorrentDetail(t qbt.Torrent) string {
 }
 
 // TorrentDetailKeyboard builds an inline keyboard for the torrent detail view.
-// Row 1: Pause or Resume button (based on torrent state).
+// Row 1: Pause and Start buttons side by side (always both visible).
 // Row 2: Back to list button.
-func TorrentDetailKeyboard(hash, filterChar string, page int, state string) Keyboard {
-	var actionBtn Button
-	if IsPaused(state) {
-		actionBtn = Button{
-			Text:         "▶️ Resume",
-			CallbackData: fmt.Sprintf("re:%s:%d:%s", filterChar, page, hash),
-		}
-	} else {
-		actionBtn = Button{
-			Text:         "⏸ Pause",
-			CallbackData: fmt.Sprintf("pa:%s:%d:%s", filterChar, page, hash),
-		}
+func TorrentDetailKeyboard(hash, filterChar string, page int, _ string) Keyboard {
+	pauseBtn := Button{
+		Text:         "⏸ Pause",
+		CallbackData: fmt.Sprintf("pa:%s:%d:%s", filterChar, page, hash),
 	}
-
+	startBtn := Button{
+		Text:         "▶️ Start",
+		CallbackData: fmt.Sprintf("re:%s:%d:%s", filterChar, page, hash),
+	}
 	backBtn := Button{
 		Text:         "⬅️ Back to list",
 		CallbackData: fmt.Sprintf("bk:%s:%d", filterChar, page),
 	}
 
 	return Keyboard{
-		ButtonRow{actionBtn},
+		ButtonRow{pauseBtn, startBtn},
 		ButtonRow{backBtn},
 	}
 }
