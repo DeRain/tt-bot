@@ -37,7 +37,8 @@ func (h *Handler) listTorrentsForFilter(ctx context.Context, filter qbt.TorrentF
 		filtered := make([]qbt.Torrent, 0, len(all))
 		for _, t := range all {
 			// Progress is set to exactly 1.0 by qBittorrent on completion; direct equality is safe here.
-			if t.Progress == 1.0 {
+			// Exclude paused and stopped uploads so only active seeders are shown.
+			if t.Progress == 1.0 && t.State != "pausedUP" && t.State != "stoppedUP" {
 				filtered = append(filtered, t)
 			}
 		}

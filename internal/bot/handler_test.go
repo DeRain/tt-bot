@@ -457,7 +457,7 @@ func TestHandler_UploadingCommand_NoCompleted_ShowsNoTorrents(t *testing.T) {
 	}
 }
 
-func TestHandler_UploadingCommand_PausedUP_Appears(t *testing.T) {
+func TestHandler_UploadingCommand_PausedUP_Excluded(t *testing.T) {
 	sender := &mockSender{}
 	qbtClient := &mockQBTClient{
 		torrents: []qbt.Torrent{
@@ -470,8 +470,13 @@ func TestHandler_UploadingCommand_PausedUP_Appears(t *testing.T) {
 	update := newCommandUpdate(1, 1, "uploading")
 	h.HandleUpdate(context.Background(), update)
 
-	if !sender.hasText("Paused Seed") {
-		t.Fatalf("expected paused completed torrent in response, got: %v", sender.sentTexts())
+	for _, text := range sender.sentTexts() {
+		if strings.Contains(text, "Paused Seed") {
+			t.Fatalf("pausedUP torrent should not appear in /uploading response, got: %v", sender.sentTexts())
+		}
+	}
+	if !sender.hasText("No torrents found") {
+		t.Fatalf("expected 'No torrents found' when only pausedUP torrents exist, got: %v", sender.sentTexts())
 	}
 }
 
