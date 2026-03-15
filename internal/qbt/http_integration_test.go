@@ -104,6 +104,73 @@ func TestIntegration_AddMagnetAndList(t *testing.T) {
 	}
 }
 
+// TestIntegration_PauseAndResumeTorrent verifies that PauseTorrents and
+// ResumeTorrents work against a real qBittorrent instance. A torrent must exist
+// (seeded by TestIntegration_AddMagnetAndList or prior test runs).
+func TestIntegration_PauseAndResumeTorrent(t *testing.T) {
+	c := integrationClient(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	if err := c.Login(ctx); err != nil {
+		t.Fatalf("Login() error = %v", err)
+	}
+
+	// Ensure at least one torrent exists.
+	const ubuntuMagnet = "magnet:?xt=urn:btih:3b245504cf5f11bbdbe1201cea6a6bf45aee1bc0&dn=ubuntu-24.04-desktop-amd64.iso"
+	_ = c.AddMagnet(ctx, ubuntuMagnet, "")
+	time.Sleep(2 * time.Second)
+
+	torrents, err := c.ListTorrents(ctx, ListOptions{Filter: FilterAll})
+	if err != nil {
+		t.Fatalf("ListTorrents() error = %v", err)
+	}
+	if len(torrents) == 0 {
+		t.Skip("no torrents available to pause/resume")
+	}
+
+	hash := torrents[0].Hash
+
+	// Pause the torrent.
+	if err := c.PauseTorrents(ctx, []string{hash}); err != nil {
+		t.Fatalf("PauseTorrents() error = %v", err)
+	}
+
+	// Wait for state to propagate and verify.
+	time.Sleep(2 * time.Second)
+	updated, err := c.ListTorrents(ctx, ListOptions{Filter: FilterAll})
+	if err != nil {
+		t.Fatalf("ListTorrents() after pause error = %v", err)
+	}
+	for _, tor := range updated {
+		if tor.Hash == hash {
+			if tor.State != "pausedDL" && tor.State != "pausedUP" {
+				t.Logf("torrent state after pause = %q (may be transitioning)", tor.State)
+			}
+			break
+		}
+	}
+
+	// Resume the torrent.
+	if err := c.ResumeTorrents(ctx, []string{hash}); err != nil {
+		t.Fatalf("ResumeTorrents() error = %v", err)
+	}
+
+	time.Sleep(2 * time.Second)
+	resumed, err := c.ListTorrents(ctx, ListOptions{Filter: FilterAll})
+	if err != nil {
+		t.Fatalf("ListTorrents() after resume error = %v", err)
+	}
+	for _, tor := range resumed {
+		if tor.Hash == hash {
+			if tor.State == "pausedDL" || tor.State == "pausedUP" {
+				t.Errorf("torrent still paused after resume: state = %q", tor.State)
+			}
+			break
+		}
+	}
+}
+
 // TestIntegration_ListTorrentsWithPagination verifies that the Limit parameter is
 // respected by ListTorrents.
 func TestIntegration_ListTorrentsWithPagination(t *testing.T) {

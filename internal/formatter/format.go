@@ -164,6 +164,107 @@ func PaginationKeyboard(currentPage, totalPages int, filterPrefix string) Keyboa
 	return Keyboard{row}
 }
 
+// FormatSize formats a byte count into a human-readable size string.
+// Values below 1 KB are shown as "X B", below 1 MB as "X.X KB",
+// below 1 GB as "X.X MB", below 1 TB as "X.X GB", and anything larger as "X.X TB".
+func FormatSize(b int64) string {
+	const (
+		kb = 1024
+		mb = 1024 * 1024
+		gb = 1024 * 1024 * 1024
+		tb = 1024 * 1024 * 1024 * 1024
+	)
+
+	switch {
+	case b < kb:
+		return fmt.Sprintf("%d B", b)
+	case b < mb:
+		return fmt.Sprintf("%.1f KB", float64(b)/kb)
+	case b < gb:
+		return fmt.Sprintf("%.1f MB", float64(b)/mb)
+	case b < tb:
+		return fmt.Sprintf("%.1f GB", float64(b)/gb)
+	default:
+		return fmt.Sprintf("%.1f TB", float64(b)/tb)
+	}
+}
+
+// IsPaused returns true if the torrent state represents a paused condition.
+func IsPaused(state string) bool {
+	return state == "pausedDL" || state == "pausedUP"
+}
+
+// FormatTorrentDetail renders a single torrent's full metadata as a
+// Telegram-safe message string.
+func FormatTorrentDetail(t qbt.Torrent) string {
+	cat := t.Category
+	if cat == "" {
+		cat = "none"
+	}
+
+	name := t.Name
+	// Truncate extremely long names to stay under message limit.
+	nameRunes := []rune(name)
+	if len(nameRunes) > 200 {
+		name = string(nameRunes[:197]) + "..."
+	}
+
+	return fmt.Sprintf(
+		"📥 %s\n\nSize: %s\nProgress: %s\nDownload: %s\nUpload: %s\nState: %s\nCategory: %s",
+		name,
+		FormatSize(t.Size),
+		FormatProgress(t.Progress),
+		FormatSpeed(t.DLSpeed),
+		FormatSpeed(t.UPSpeed),
+		t.State,
+		cat,
+	)
+}
+
+// TorrentDetailKeyboard builds an inline keyboard for the torrent detail view.
+// Row 1: Pause or Resume button (based on torrent state).
+// Row 2: Back to list button.
+func TorrentDetailKeyboard(hash, filterChar string, page int, state string) Keyboard {
+	var actionBtn Button
+	if IsPaused(state) {
+		actionBtn = Button{
+			Text:         "▶️ Resume",
+			CallbackData: fmt.Sprintf("re:%s:%d:%s", filterChar, page, hash),
+		}
+	} else {
+		actionBtn = Button{
+			Text:         "⏸ Pause",
+			CallbackData: fmt.Sprintf("pa:%s:%d:%s", filterChar, page, hash),
+		}
+	}
+
+	backBtn := Button{
+		Text:         "⬅️ Back to list",
+		CallbackData: fmt.Sprintf("bk:%s:%d", filterChar, page),
+	}
+
+	return Keyboard{
+		ButtonRow{actionBtn},
+		ButtonRow{backBtn},
+	}
+}
+
+// TorrentSelectionKeyboard builds a keyboard with one button per torrent,
+// allowing the user to select a torrent from the list view.
+func TorrentSelectionKeyboard(torrents []qbt.Torrent, filterChar string, page int) Keyboard {
+	if len(torrents) == 0 {
+		return nil
+	}
+
+	kb := make(Keyboard, 0, len(torrents))
+	for i, t := range torrents {
+		label := fmt.Sprintf("%d. %s", i+1, truncateName(t.Name))
+		data := fmt.Sprintf("sel:%s:%d:%s", filterChar, page, t.Hash)
+		kb = append(kb, ButtonRow{Button{Text: label, CallbackData: data}})
+	}
+	return kb
+}
+
 // CategoryKeyboard builds an inline keyboard with one button per category.
 // Each button's callback data is "cat:<name>" truncated to MaxCallbackData bytes.
 //

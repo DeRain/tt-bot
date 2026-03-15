@@ -233,6 +233,148 @@ func TestE2E_ListPagination(t *testing.T) {
 	}
 }
 
+// TestE2E_SelectTorrentShowsDetail verifies the full flow: /list → select torrent
+// → detail view with Pause/Resume and Back buttons.
+func TestE2E_SelectTorrentShowsDetail(t *testing.T) {
+	const (
+		chatID = int64(1005)
+		userID = int64(1005)
+	)
+
+	ctx := context.Background()
+	qbtClient := getQBTClient(t)
+
+	// Ensure at least one torrent exists.
+	if err := qbtClient.AddMagnet(ctx, ubuntuMagnet, ""); err != nil {
+		t.Logf("AddMagnet (pre-seed): %v", err)
+	}
+	time.Sleep(2 * time.Second)
+
+	sender := &mockSender{}
+	auth := NewAuthorizer([]int64{userID})
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+
+	// Step 1: List torrents.
+	listUpdate := newCommandUpdate(chatID, userID, "list")
+	h.HandleUpdate(ctx, listUpdate)
+
+	// Verify selection buttons are present.
+	hasSelButton := false
+	for _, msg := range sender.sentMessages {
+		if nm, ok := msg.(tgbotapi.MessageConfig); ok {
+			if kb, ok := nm.ReplyMarkup.(tgbotapi.InlineKeyboardMarkup); ok {
+				for _, row := range kb.InlineKeyboard {
+					for _, btn := range row {
+						if btn.CallbackData != nil && len(*btn.CallbackData) > 4 && (*btn.CallbackData)[:4] == "sel:" {
+							hasSelButton = true
+						}
+					}
+				}
+			}
+		}
+	}
+	if !hasSelButton {
+		t.Fatal("expected selection buttons (sel: prefix) in /list response")
+	}
+
+	// Step 2: Get a torrent hash to select.
+	torrents, err := qbtClient.ListTorrents(ctx, qbt.ListOptions{Filter: qbt.FilterAll})
+	if err != nil {
+		t.Fatalf("ListTorrents() error = %v", err)
+	}
+	if len(torrents) == 0 {
+		t.Skip("no torrents to select")
+	}
+	hash := torrents[0].Hash
+
+	// Step 3: Select the torrent.
+	sender.sentMessages = nil
+	selCallback := newCallbackUpdate(chatID, "cb-sel", "sel:a:1:"+hash)
+	h.HandleUpdate(ctx, selCallback)
+
+	// Verify detail view was shown.
+	if !sender.hasEditText("Size:") {
+		t.Fatalf("expected detail view with Size: field, got edits: %v", sender.editTexts())
+	}
+	if !sender.hasEditText("State:") {
+		t.Fatalf("expected detail view with State: field")
+	}
+}
+
+// TestE2E_PauseResumeTorrent verifies the pause → resume → back flow against a
+// real qBittorrent instance.
+func TestE2E_PauseResumeTorrent(t *testing.T) {
+	const (
+		chatID = int64(1006)
+		userID = int64(1006)
+	)
+
+	ctx := context.Background()
+	qbtClient := getQBTClient(t)
+
+	// Ensure at least one torrent exists.
+	if err := qbtClient.AddMagnet(ctx, ubuntuMagnet, ""); err != nil {
+		t.Logf("AddMagnet (pre-seed): %v", err)
+	}
+	time.Sleep(2 * time.Second)
+
+	torrents, err := qbtClient.ListTorrents(ctx, qbt.ListOptions{Filter: qbt.FilterAll})
+	if err != nil {
+		t.Fatalf("ListTorrents() error = %v", err)
+	}
+	if len(torrents) == 0 {
+		t.Skip("no torrents to pause/resume")
+	}
+	hash := torrents[0].Hash
+
+	sender := &mockSender{}
+	auth := NewAuthorizer([]int64{userID})
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+
+	// Step 1: Pause the torrent.
+	paCallback := newCallbackUpdate(chatID, "cb-pa", "pa:a:1:"+hash)
+	h.HandleUpdate(ctx, paCallback)
+
+	// Verify callback was answered with "Paused".
+	paused := false
+	for _, msg := range sender.sentMessages {
+		if ca, ok := msg.(tgbotapi.CallbackConfig); ok {
+			if ca.Text == "Paused" {
+				paused = true
+			}
+		}
+	}
+	if !paused {
+		t.Fatal("expected 'Paused' callback answer")
+	}
+
+	// Step 2: Resume the torrent.
+	sender.sentMessages = nil
+	reCallback := newCallbackUpdate(chatID, "cb-re", "re:a:1:"+hash)
+	h.HandleUpdate(ctx, reCallback)
+
+	resumed := false
+	for _, msg := range sender.sentMessages {
+		if ca, ok := msg.(tgbotapi.CallbackConfig); ok {
+			if ca.Text == "Resumed" {
+				resumed = true
+			}
+		}
+	}
+	if !resumed {
+		t.Fatal("expected 'Resumed' callback answer")
+	}
+
+	// Step 3: Back to list.
+	sender.sentMessages = nil
+	bkCallback := newCallbackUpdate(chatID, "cb-bk", "bk:a:1")
+	h.HandleUpdate(ctx, bkCallback)
+
+	if !sender.hasEditText("page 1/") {
+		t.Fatalf("expected list page after back, got edits: %v", sender.editTexts())
+	}
+}
+
 // TestE2E_ActiveCommandShowsDownloading verifies that /active returns a valid
 // response even when no torrents are currently active.
 func TestE2E_ActiveCommandShowsDownloading(t *testing.T) {

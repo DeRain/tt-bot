@@ -68,12 +68,16 @@ func (m *mockSender) hasText(sub string) bool {
 
 // mockQBTClient is a minimal in-memory implementation of qbt.Client for tests.
 type mockQBTClient struct {
-	loginErr     error
-	magnets      []string
-	files        []string
-	torrents     []qbt.Torrent
-	categories   []qbt.Category
-	addMagnetErr error
+	loginErr      error
+	magnets       []string
+	files         []string
+	torrents      []qbt.Torrent
+	categories    []qbt.Category
+	addMagnetErr  error
+	pausedHashes  []string
+	resumedHashes []string
+	pauseErr      error
+	resumeErr     error
 }
 
 func (m *mockQBTClient) Login(_ context.Context) error { return m.loginErr }
@@ -107,6 +111,22 @@ func (m *mockQBTClient) ListTorrents(_ context.Context, opts qbt.ListOptions) ([
 
 func (m *mockQBTClient) Categories(_ context.Context) ([]qbt.Category, error) {
 	return m.categories, nil
+}
+
+func (m *mockQBTClient) PauseTorrents(_ context.Context, hashes []string) error {
+	if m.pauseErr != nil {
+		return m.pauseErr
+	}
+	m.pausedHashes = append(m.pausedHashes, hashes...)
+	return nil
+}
+
+func (m *mockQBTClient) ResumeTorrents(_ context.Context, hashes []string) error {
+	if m.resumeErr != nil {
+		return m.resumeErr
+	}
+	m.resumedHashes = append(m.resumedHashes, hashes...)
+	return nil
 }
 
 // ---------------------------------------------------------------------------

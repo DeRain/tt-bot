@@ -296,6 +296,145 @@ func TestCategories_ReturnsSortedSlice(t *testing.T) {
 	}
 }
 
+// --- PauseTorrents tests ----------------------------------------------------
+
+func TestPauseTorrents_SendsCorrectForm(t *testing.T) {
+	const sid = "sid-pause"
+	var gotBody string
+	var gotMethod string
+	var gotPath string
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/auth/login", loginHandler(sid))
+	mux.HandleFunc("/api/v2/torrents/stop", func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		body, _ := io.ReadAll(r.Body)
+		gotBody = string(body)
+		w.WriteHeader(http.StatusOK)
+	})
+
+	_, client := newTestServer(t, mux)
+	_ = client.Login(context.Background())
+
+	hashes := []string{"abc123", "def456"}
+	if err := client.PauseTorrents(context.Background(), hashes); err != nil {
+		t.Fatalf("PauseTorrents() error = %v", err)
+	}
+
+	if gotMethod != http.MethodPost {
+		t.Errorf("method = %q, want POST", gotMethod)
+	}
+	if gotPath != "/api/v2/torrents/stop" {
+		t.Errorf("path = %q, want /api/v2/torrents/stop", gotPath)
+	}
+
+	wantBody := "hashes=abc123%7Cdef456"
+	if gotBody != wantBody {
+		t.Errorf("body = %q, want %q", gotBody, wantBody)
+	}
+}
+
+func TestPauseTorrents_ReauthOn403(t *testing.T) {
+	const newSID = "new-sid-pause"
+	loginCount := 0
+	callCount := 0
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/auth/login", func(w http.ResponseWriter, r *http.Request) {
+		loginCount++
+		http.SetCookie(w, &http.Cookie{Name: "SID", Value: newSID})
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("Ok."))
+	})
+	mux.HandleFunc("/api/v2/torrents/stop", func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		cookie, err := r.Cookie("SID")
+		if err != nil || cookie.Value != newSID {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+
+	_, client := newTestServer(t, mux)
+	_ = client.Login(context.Background())
+	// Invalidate SID to trigger re-auth.
+	client.mu.Lock()
+	client.sid = "stale"
+	client.mu.Unlock()
+
+	if err := client.PauseTorrents(context.Background(), []string{"hash1"}); err != nil {
+		t.Fatalf("PauseTorrents() error after re-auth = %v", err)
+	}
+	if loginCount < 2 {
+		t.Errorf("loginCount = %d, want >= 2", loginCount)
+	}
+}
+
+// --- ResumeTorrents tests ---------------------------------------------------
+
+func TestResumeTorrents_SendsCorrectForm(t *testing.T) {
+	const sid = "sid-resume"
+	var gotBody string
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/auth/login", loginHandler(sid))
+	mux.HandleFunc("/api/v2/torrents/start", func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		gotBody = string(body)
+		w.WriteHeader(http.StatusOK)
+	})
+
+	_, client := newTestServer(t, mux)
+	_ = client.Login(context.Background())
+
+	if err := client.ResumeTorrents(context.Background(), []string{"xyz789"}); err != nil {
+		t.Fatalf("ResumeTorrents() error = %v", err)
+	}
+
+	wantBody := "hashes=xyz789"
+	if gotBody != wantBody {
+		t.Errorf("body = %q, want %q", gotBody, wantBody)
+	}
+}
+
+func TestPauseTorrents_ErrorOnNon200(t *testing.T) {
+	const sid = "sid-pause-err"
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/auth/login", loginHandler(sid))
+	mux.HandleFunc("/api/v2/torrents/stop", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+
+	_, client := newTestServer(t, mux)
+	_ = client.Login(context.Background())
+
+	err := client.PauseTorrents(context.Background(), []string{"hash1"})
+	if err == nil {
+		t.Fatal("expected error for non-200 response")
+	}
+}
+
+func TestResumeTorrents_ErrorOnNon200(t *testing.T) {
+	const sid = "sid-resume-err"
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/auth/login", loginHandler(sid))
+	mux.HandleFunc("/api/v2/torrents/start", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+
+	_, client := newTestServer(t, mux)
+	_ = client.Login(context.Background())
+
+	err := client.ResumeTorrents(context.Background(), []string{"hash1"})
+	if err == nil {
+		t.Fatal("expected error for non-200 response")
+	}
+}
+
 // --- Auto re-auth tests -----------------------------------------------------
 
 func TestAutoReauth_On403(t *testing.T) {

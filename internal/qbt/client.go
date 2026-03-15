@@ -26,4 +26,10 @@ type Client interface {
 
 	// Categories returns all categories configured in qBittorrent, sorted by name.
 	Categories(ctx context.Context) ([]Category, error)
+
+	// PauseTorrents pauses one or more torrents identified by info-hash.
+	PauseTorrents(ctx context.Context, hashes []string) error
+
+	// ResumeTorrents resumes one or more torrents identified by info-hash.
+	ResumeTorrents(ctx context.Context, hashes []string) error
 }
