@@ -73,7 +73,7 @@ func TestHelpText_GeneratedFromBotCommands(t *testing.T) {
 
 // Verify expected commands are registered.
 func TestBotCommands_ContainsExpectedCommands(t *testing.T) {
-	expected := []string{"list", "active", "help"}
+	expected := []string{"list", "active", "downloading", "help"}
 	if len(BotCommands) != len(expected) {
 		t.Fatalf("expected %d commands, got %d", len(expected), len(BotCommands))
 	}

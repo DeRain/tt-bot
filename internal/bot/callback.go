@@ -12,6 +12,29 @@ import (
 	"github.com/home/tt-bot/internal/qbt"
 )
 
+// listTorrentsForFilter fetches torrents from qBittorrent, applying client-side
+// post-filtering for virtual filters like FilterDownloading.
+func (h *Handler) listTorrentsForFilter(ctx context.Context, filter qbt.TorrentFilter) ([]qbt.Torrent, error) {
+	apiFilter := filter
+	if filter == qbt.FilterDownloading {
+		apiFilter = qbt.FilterAll
+	}
+	all, err := h.qbt.ListTorrents(ctx, qbt.ListOptions{Filter: apiFilter})
+	if err != nil {
+		return nil, err
+	}
+	if filter == qbt.FilterDownloading {
+		filtered := make([]qbt.Torrent, 0, len(all))
+		for _, t := range all {
+			if t.Progress < 1.0 {
+				filtered = append(filtered, t)
+			}
+		}
+		return filtered, nil
+	}
+	return all, nil
+}
+
 // filterCharToFilter converts a single-character filter code to a TorrentFilter.
 func filterCharToFilter(char string) (qbt.TorrentFilter, bool) {
 	switch char {
@@ -19,6 +42,8 @@ func filterCharToFilter(char string) (qbt.TorrentFilter, bool) {
 		return qbt.FilterAll, true
 	case "c":
 		return qbt.FilterActive, true
+	case "d":
+		return qbt.FilterDownloading, true
 	default:
 		return "", false
 	}
@@ -31,6 +56,8 @@ func filterCharToPrefix(char string) string {
 		return "all"
 	case "c":
 		return "act"
+	case "d":
+		return "dw"
 	default:
 		return "all"
 	}
@@ -41,6 +68,8 @@ func filterToChar(filter qbt.TorrentFilter) string {
 	switch filter {
 	case qbt.FilterActive:
 		return "c"
+	case qbt.FilterDownloading:
+		return "d"
 	default:
 		return "a"
 	}
@@ -70,6 +99,14 @@ func (h *Handler) handleCallback(ctx context.Context, cq *tgbotapi.CallbackQuery
 			return
 		}
 		h.handlePaginationCallback(ctx, cq, qbt.FilterActive, "act", page)
+
+	case strings.HasPrefix(data, "pg:dw:"):
+		page, err := strconv.Atoi(strings.TrimPrefix(data, "pg:dw:"))
+		if err != nil {
+			h.answerCallback(cq.ID, "Invalid page.")
+			return
+		}
+		h.handlePaginationCallback(ctx, cq, qbt.FilterDownloading, "dw", page)
 
 	case strings.HasPrefix(data, "sel:"):
 		h.handleSelectCallback(ctx, cq, strings.TrimPrefix(data, "sel:"))
@@ -159,7 +196,7 @@ func (h *Handler) renderTorrentListPage(
 	filterPrefix string,
 	page int,
 ) (string, formatter.Keyboard, error) {
-	all, err := h.qbt.ListTorrents(ctx, qbt.ListOptions{Filter: filter})
+	all, err := h.listTorrentsForFilter(ctx, filter)
 	if err != nil {
 		return "", nil, err
 	}
@@ -228,7 +265,7 @@ func (h *Handler) handleSelectCallback(ctx context.Context, cq *tgbotapi.Callbac
 		return
 	}
 
-	all, err := h.qbt.ListTorrents(ctx, qbt.ListOptions{Filter: filter})
+	all, err := h.listTorrentsForFilter(ctx, filter)
 	if err != nil {
 		h.answerCallback(cq.ID, fmt.Sprintf("Error: %v", err))
 		return
@@ -282,7 +319,7 @@ func (h *Handler) handleTorrentAction(ctx context.Context, cq *tgbotapi.Callback
 	}
 
 	// Re-fetch the torrent to display the updated state.
-	all, listErr := h.qbt.ListTorrents(ctx, qbt.ListOptions{Filter: filter})
+	all, listErr := h.listTorrentsForFilter(ctx, filter)
 	if listErr != nil {
 		actionText := "Paused"
 		if !pause {

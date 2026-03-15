@@ -266,6 +266,70 @@ func TestHandler_MagnetLink_StoresPendingAndShowsCategories(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// /downloading command tests (TASK-4)
+// ---------------------------------------------------------------------------
+
+func TestHandler_DownloadingCommand_ShowsOnlyIncomplete(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{
+		torrents: []qbt.Torrent{
+			{Hash: "h1", Name: "Incomplete Torrent", Progress: 0.5},
+			{Hash: "h2", Name: "Completed Torrent", Progress: 1.0},
+		},
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+
+	update := newCommandUpdate(1, 1, "downloading")
+	h.HandleUpdate(context.Background(), update)
+
+	if !sender.hasText("Incomplete Torrent") {
+		t.Fatalf("expected incomplete torrent in response, got: %v", sender.sentTexts())
+	}
+	for _, text := range sender.sentTexts() {
+		if strings.Contains(text, "Completed Torrent") {
+			t.Fatalf("completed torrent should not appear in /downloading response, got: %v", sender.sentTexts())
+		}
+	}
+}
+
+func TestHandler_DownloadingCommand_NoIncomplete_ShowsNoTorrents(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{
+		torrents: []qbt.Torrent{
+			{Hash: "h1", Name: "Seeded Torrent", Progress: 1.0},
+		},
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+
+	update := newCommandUpdate(1, 1, "downloading")
+	h.HandleUpdate(context.Background(), update)
+
+	if !sender.hasText("No torrents found") {
+		t.Fatalf("expected 'No torrents found', got: %v", sender.sentTexts())
+	}
+}
+
+func TestHandler_DownloadingCommand_PausedIncomplete_Appears(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{
+		torrents: []qbt.Torrent{
+			{Hash: "h1", Name: "Paused Download", Progress: 0.3, State: "pausedDL"},
+		},
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+
+	update := newCommandUpdate(1, 1, "downloading")
+	h.HandleUpdate(context.Background(), update)
+
+	if !sender.hasText("Paused Download") {
+		t.Fatalf("expected paused incomplete torrent in response, got: %v", sender.sentTexts())
+	}
+}
+
 func TestHandler_MagnetLink_MidText(t *testing.T) {
 	sender := &mockSender{}
 	qbtClient := &mockQBTClient{

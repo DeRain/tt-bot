@@ -427,6 +427,59 @@ func TestCallback_PaginationAll_IncludesSelectionKeyboard(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// FilterDownloading char mapping tests (TASK-2)
+// ---------------------------------------------------------------------------
+
+func TestFilterCharToFilter_Downloading(t *testing.T) {
+	got, ok := filterCharToFilter("d")
+	if !ok {
+		t.Fatal("filterCharToFilter('d') should return ok=true")
+	}
+	if got != qbt.FilterDownloading {
+		t.Errorf("filterCharToFilter('d') = %q, want %q", got, qbt.FilterDownloading)
+	}
+}
+
+func TestFilterCharToPrefix_Downloading(t *testing.T) {
+	if p := filterCharToPrefix("d"); p != "dw" {
+		t.Errorf("filterCharToPrefix('d') = %q, want 'dw'", p)
+	}
+}
+
+func TestFilterToChar_Downloading(t *testing.T) {
+	if c := filterToChar(qbt.FilterDownloading); c != "d" {
+		t.Errorf("filterToChar(FilterDownloading) = %q, want 'd'", c)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// pg:dw: pagination callback (TASK-3)
+// ---------------------------------------------------------------------------
+
+func TestCallback_PaginationDownloading_FetchesCorrectPage(t *testing.T) {
+	sender := &mockSender{}
+	// 6 torrents, all incomplete (Progress < 1.0), so 2 pages (5+1).
+	torrents := make([]qbt.Torrent, 6)
+	for i := range torrents {
+		torrents[i] = qbt.Torrent{
+			Hash:     "h" + string(rune('0'+i)),
+			Name:     "Downloading " + string(rune('A'+i)),
+			Progress: 0.5,
+		}
+	}
+	qbtClient := &mockQBTClient{torrents: torrents}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+
+	update := newCallbackUpdate(1, "cb-dw", "pg:dw:2")
+	h.HandleUpdate(context.Background(), update)
+
+	if !sender.hasEditText("page 2/2") {
+		t.Fatalf("expected page 2/2 in edited message, got edits: %v", sender.editTexts())
+	}
+}
+
 func TestCallback_CategoryWithNoCategory_ShowsGenericConfirm(t *testing.T) {
 	sender := &mockSender{}
 	qbtClient := &mockQBTClient{}

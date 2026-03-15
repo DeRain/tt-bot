@@ -172,6 +172,7 @@ Spawn subagents with the `model` parameter matching the task phase. See `docs/ga
 | completion-notifications | Background polling and completion alerts | `docs/features/completion-notifications/` |
 | config | Environment variable loading and validation | `docs/features/config/` |
 | set-commands | Register bot commands with Telegram on startup | `docs/features/set-commands/` |
+| downloading-list | List non-completed torrents (paused + active) | `docs/features/downloading-list/` |
 
 ### PR and Commit Conventions
 

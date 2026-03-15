@@ -9,6 +9,10 @@ const (
 	FilterAll TorrentFilter = "all"
 	// FilterActive returns only torrents that are actively downloading or seeding.
 	FilterActive TorrentFilter = "active"
+	// FilterDownloading is a virtual filter for non-completed torrents (Progress < 1.0).
+	// It is not passed to the qBittorrent API; instead, all torrents are fetched
+	// and filtered client-side.
+	FilterDownloading TorrentFilter = "downloading"
 )
 
 // Torrent represents a single torrent item as returned by the qBittorrent API.

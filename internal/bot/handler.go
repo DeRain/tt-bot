@@ -135,7 +135,7 @@ func (h *Handler) HandleUpdate(ctx context.Context, update tgbotapi.Update) {
 	// Unknown message — silently ignore to avoid spamming the user.
 }
 
-// handleCommand dispatches bot commands (/start, /help, /list, /active).
+// handleCommand dispatches bot commands (/start, /help, /list, /active, /downloading).
 func (h *Handler) handleCommand(ctx context.Context, msg *tgbotapi.Message) {
 	switch msg.Command() {
 	case "start", "help":
@@ -146,6 +146,9 @@ func (h *Handler) handleCommand(ctx context.Context, msg *tgbotapi.Message) {
 
 	case "active":
 		h.sendTorrentPage(ctx, msg.Chat.ID, qbt.FilterActive, 1)
+
+	case "downloading":
+		h.sendTorrentPage(ctx, msg.Chat.ID, qbt.FilterDownloading, 1)
 	}
 }
 
@@ -243,9 +246,14 @@ func downloadFileURL(ctx context.Context, client *http.Client, url string) ([]by
 // sendTorrentPage fetches torrents and sends the requested page to the chat.
 // A single API call fetches all matching torrents; paging is done in Go.
 func (h *Handler) sendTorrentPage(ctx context.Context, chatID int64, filter qbt.TorrentFilter, page int) {
-	filterPrefix := "all"
-	if filter == qbt.FilterActive {
+	var filterPrefix string
+	switch filter {
+	case qbt.FilterActive:
 		filterPrefix = "act"
+	case qbt.FilterDownloading:
+		filterPrefix = "dw"
+	default:
+		filterPrefix = "all"
 	}
 
 	text, kb, err := h.renderTorrentListPage(ctx, filter, filterPrefix, page)

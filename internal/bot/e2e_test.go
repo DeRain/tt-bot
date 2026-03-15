@@ -375,6 +375,159 @@ func TestE2E_PauseResumeTorrent(t *testing.T) {
 	}
 }
 
+// TestE2E_DownloadingCommandShowsIncompleteTorrents verifies that /downloading
+// returns a valid response and shows only incomplete torrents (Progress < 1.0).
+// A torrent is pre-seeded via ubuntuMagnet which will remain incomplete during
+// the test, satisfying AC-1.1, AC-2.1, AC-2.2, AC-5.1.
+func TestE2E_DownloadingCommandShowsIncompleteTorrents(t *testing.T) {
+	const (
+		chatID = int64(1007)
+		userID = int64(1007)
+	)
+
+	ctx := context.Background()
+	qbtClient := getQBTClient(t)
+
+	// Pre-seed an incomplete torrent — ubuntu ISO is large and will not finish.
+	if err := qbtClient.AddMagnet(ctx, ubuntuMagnet, ""); err != nil {
+		t.Logf("AddMagnet (pre-seed): %v", err)
+	}
+	// Give qBittorrent time to register the torrent.
+	time.Sleep(2 * time.Second)
+
+	sender := &mockSender{}
+	auth := NewAuthorizer([]int64{userID})
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+
+	update := newCommandUpdate(chatID, userID, "downloading")
+	h.HandleUpdate(ctx, update)
+
+	// AC-5.1: command must respond without errors.
+	if len(sender.sentMessages) == 0 {
+		t.Fatal("expected at least one message in response to /downloading")
+	}
+
+	// The message text must not be empty.
+	texts := sender.sentTexts()
+	if len(texts) == 0 {
+		t.Fatal("expected at least one text message in response to /downloading")
+	}
+	for _, text := range texts {
+		if len(text) == 0 {
+			t.Error("received empty text message for /downloading")
+		}
+	}
+
+	// AC-1.1 / AC-2.1 / AC-2.2: since the ubuntu torrent is incomplete the
+	// response must NOT be "No torrents found." — it should list the torrent.
+	for _, text := range texts {
+		if text == "No torrents found." {
+			t.Errorf("/downloading returned 'No torrents found.' but an incomplete torrent should be visible")
+		}
+	}
+
+	// A pagination keyboard should be present in the response.
+	hasKeyboard := false
+	for _, msg := range sender.sentMessages {
+		if nm, ok := msg.(tgbotapi.MessageConfig); ok {
+			if nm.ReplyMarkup != nil {
+				hasKeyboard = true
+				break
+			}
+		}
+	}
+	if !hasKeyboard {
+		t.Error("expected pagination keyboard in /downloading response")
+	}
+}
+
+// TestE2E_DownloadingPaginationAndSelection verifies the full pagination and
+// selection flow for the /downloading command: pg:dw:1 edits the message,
+// sel:d:1:<hash> shows the detail view, and bk:d:1 returns to the list.
+// Covers AC-3.2, AC-4.1.
+func TestE2E_DownloadingPaginationAndSelection(t *testing.T) {
+	const (
+		chatID = int64(1008)
+		userID = int64(1008)
+	)
+
+	ctx := context.Background()
+	qbtClient := getQBTClient(t)
+
+	// Pre-seed an incomplete torrent so the downloading list is non-empty.
+	if err := qbtClient.AddMagnet(ctx, ubuntuMagnet, ""); err != nil {
+		t.Logf("AddMagnet (pre-seed): %v", err)
+	}
+	time.Sleep(2 * time.Second)
+
+	// Verify there is at least one incomplete torrent to work with.
+	torrents, err := qbtClient.ListTorrents(ctx, qbt.ListOptions{Filter: qbt.FilterAll})
+	if err != nil {
+		t.Fatalf("ListTorrents() error = %v", err)
+	}
+	var incompleteTorrents []qbt.Torrent
+	for _, tor := range torrents {
+		if tor.Progress < 1.0 {
+			incompleteTorrents = append(incompleteTorrents, tor)
+		}
+	}
+	if len(incompleteTorrents) == 0 {
+		t.Skip("no incomplete torrents available for downloading pagination test")
+	}
+	hash := incompleteTorrents[0].Hash
+
+	sender := &mockSender{}
+	auth := NewAuthorizer([]int64{userID})
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+
+	// Step 1: Issue /downloading to establish the list view.
+	listUpdate := newCommandUpdate(chatID, userID, "downloading")
+	h.HandleUpdate(ctx, listUpdate)
+
+	if len(sender.sentMessages) == 0 {
+		t.Fatal("expected at least one message for /downloading")
+	}
+
+	// Step 2: AC-3.2 — pg:dw:1 pagination callback edits the message and
+	// answers the callback to dismiss the loading spinner.
+	sender.sentMessages = nil
+	pgCallback := newCallbackUpdate(chatID, "cb-dw-pg", "pg:dw:1")
+	h.HandleUpdate(ctx, pgCallback)
+
+	answered := false
+	for _, msg := range sender.sentMessages {
+		if _, ok := msg.(tgbotapi.CallbackConfig); ok {
+			answered = true
+			break
+		}
+	}
+	if !answered {
+		t.Errorf("expected callback answer after pg:dw:1 pagination, got: %v", sender.sentMessages)
+	}
+
+	// Step 3: AC-4.1 — sel:d:1:<hash> selection shows the detail view with
+	// Size: and State: fields.
+	sender.sentMessages = nil
+	selCallback := newCallbackUpdate(chatID, "cb-dw-sel", "sel:d:1:"+hash)
+	h.HandleUpdate(ctx, selCallback)
+
+	if !sender.hasEditText("Size:") {
+		t.Fatalf("expected detail view with Size: field after sel:d:1:hash, got edits: %v", sender.editTexts())
+	}
+	if !sender.hasEditText("State:") {
+		t.Fatalf("expected detail view with State: field after sel:d:1:hash, got edits: %v", sender.editTexts())
+	}
+
+	// Step 4: bk:d:1 back callback returns to the downloading list.
+	sender.sentMessages = nil
+	bkCallback := newCallbackUpdate(chatID, "cb-dw-bk", "bk:d:1")
+	h.HandleUpdate(ctx, bkCallback)
+
+	if !sender.hasEditText("page 1/") {
+		t.Fatalf("expected list page after bk:d:1 back, got edits: %v", sender.editTexts())
+	}
+}
+
 // TestE2E_ActiveCommandShowsDownloading verifies that /active returns a valid
 // response even when no torrents are currently active.
 func TestE2E_ActiveCommandShowsDownloading(t *testing.T) {
