@@ -45,6 +45,10 @@ Opus MUST NOT write implementation code directly. All implementation file edits 
 
 **Steps 1-3 are NOT optional. The Sonnet agent's claim of "all tests pass" must be independently verified.**
 
+## Sonnet Implementation Agent Prompts (MANDATORY)
+
+Every Sonnet implementation agent prompt MUST include the gate requirements from @docs/gates.md — specifically the "Iterative Harness Loop Protocol" steps. Omitting gate requirements from the agent prompt is a violation of this project's workflow.
+
 ## Docs-First Feature Workflow (MANDATORY)
 
 This repository uses **requirements-traceability** for all non-trivial work. Every feature requirement and acceptance criterion is traced through: specification → design → plan → implementation → verification.
