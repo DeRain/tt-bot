@@ -22,3 +22,5 @@ coverage.out
 # Docker volumes
 qbt-config/
 qbt-downloads/
+
+.mcp.json
