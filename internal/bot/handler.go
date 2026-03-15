@@ -22,9 +22,10 @@ const (
 	pendingTTL = 5 * time.Minute
 	// cleanupInterval is how often the pending-map cleanup goroutine runs.
 	cleanupInterval = 1 * time.Minute
-	// actionStateDelay is how long to wait after a pause/resume action
-	// for qBittorrent to update the torrent state before re-fetching.
-	actionStateDelay = 500 * time.Millisecond
+	// actionPollInterval is how often to re-check torrent state after an action.
+	actionPollInterval = 200 * time.Millisecond
+	// actionPollTimeout is the maximum time to wait for a state change after an action.
+	actionPollTimeout = 2 * time.Second
 )
 
 // PendingTorrent holds a torrent that the user has sent but has not yet been
@@ -344,6 +345,47 @@ func (h *Handler) answerCallback(callbackID string, text string) {
 	answer := tgbotapi.NewCallback(callbackID, text)
 	if _, err := h.sender.Request(answer); err != nil {
 		log.Printf("bot: answer callback error: %v", err)
+	}
+}
+
+// awaitStateChange polls qBittorrent until the torrent identified by hash
+// has a different State than oldState, or until timeout. It returns the
+// updated torrent and true if a change was detected, or the last-fetched
+// torrent and false if it timed out. If the torrent disappears, it returns
+// a zero Torrent and false.
+func (h *Handler) awaitStateChange(ctx context.Context, hash, oldState string) (qbt.Torrent, bool) {
+	ticker := time.NewTicker(actionPollInterval)
+	defer ticker.Stop()
+	timeout := time.After(actionPollTimeout)
+
+	for {
+		select {
+		case <-timeout:
+			// Timeout: fetch one last time and return whatever we have.
+			all, err := h.listTorrentsForFilter(ctx, qbt.FilterAll)
+			if err != nil {
+				return qbt.Torrent{}, false
+			}
+			t, found := findTorrentByHash(all, hash)
+			if !found {
+				return qbt.Torrent{}, false
+			}
+			return t, t.State != oldState
+		case <-ctx.Done():
+			return qbt.Torrent{}, false
+		case <-ticker.C:
+			all, err := h.listTorrentsForFilter(ctx, qbt.FilterAll)
+			if err != nil {
+				continue
+			}
+			t, found := findTorrentByHash(all, hash)
+			if !found {
+				return qbt.Torrent{}, false
+			}
+			if t.State != oldState {
+				return t, true
+			}
+		}
 	}
 }
 

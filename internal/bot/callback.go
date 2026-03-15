@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
@@ -360,6 +359,15 @@ func (h *Handler) handleTorrentAction(ctx context.Context, cq *tgbotapi.Callback
 		return
 	}
 
+	// Fetch current state before the action so we can detect when it changes.
+	preAll, preErr := h.listTorrentsForFilter(ctx, qbt.FilterAll)
+	var oldState string
+	if preErr == nil {
+		if t, found := findTorrentByHash(preAll, hash); found {
+			oldState = t.State
+		}
+	}
+
 	if pause {
 		err = h.qbt.PauseTorrents(ctx, []string{hash})
 	} else {
@@ -370,37 +378,27 @@ func (h *Handler) handleTorrentAction(ctx context.Context, cq *tgbotapi.Callback
 		return
 	}
 
-	select {
-	case <-time.After(actionStateDelay):
-	case <-ctx.Done():
-		h.answerCallback(cq.ID, "Canceled.")
-		return
+	actionText := "Paused"
+	if !pause {
+		actionText = "Resumed"
 	}
 
-	// Re-fetch the torrent to display the updated state.
-	all, listErr := h.listTorrentsForFilter(ctx, qbt.FilterAll)
-	if listErr != nil {
-		actionText := "Paused"
-		if !pause {
-			actionText = "Resumed"
-		}
+	// Poll until qBittorrent reflects the state change.
+	torrent, changed := h.awaitStateChange(ctx, hash, oldState)
+	if !changed {
+		// Timeout or context canceled — still show the action confirmation.
 		h.answerCallback(cq.ID, actionText)
-		return
-	}
-
-	torrent, found := findTorrentByHash(all, hash)
-	if !found {
-		h.answerCallback(cq.ID, "Torrent not found after action.")
+		if torrent.Hash != "" {
+			text := formatter.FormatTorrentDetail(torrent)
+			kb := toTGKeyboard(formatter.TorrentDetailKeyboard(hash, filterChar, page, torrent.State))
+			h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &kb)
+		}
 		return
 	}
 
 	text := formatter.FormatTorrentDetail(torrent)
 	kb := toTGKeyboard(formatter.TorrentDetailKeyboard(hash, filterChar, page, torrent.State))
 
-	actionText := "Paused"
-	if !pause {
-		actionText = "Resumed"
-	}
 	h.answerCallback(cq.ID, actionText)
 	h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &kb)
 }
