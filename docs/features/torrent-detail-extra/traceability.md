@@ -1,7 +1,7 @@
 ---
 title: "Extended Torrent Detail Info — Traceability Matrix"
 feature_id: "torrent-detail-extra"
-status: draft
+status: complete
 last_updated: 2026-03-15
 ---
 
@@ -11,28 +11,28 @@ last_updated: 2026-03-15
 
 | Requirement | Acceptance Criteria | Design | Plan Tasks | Implementation Evidence | Verification | Status |
 |-------------|---------------------|--------|------------|-------------------------|--------------|--------|
-| REQ-1 | AC-1.1, AC-1.2, AC-1.3 | DES-1, DES-2 | TASK-2, TASK-3 | `internal/formatter/formatter.go` (`FormatTorrentDetail`) | TEST-2, TEST-3 | TODO |
-| REQ-2 | AC-2.1, AC-2.2, AC-2.3 | DES-1, DES-2 | TASK-2, TASK-3 | `internal/formatter/formatter.go` (`FormatTorrentDetail`) | TEST-2, TEST-3 | TODO |
-| REQ-3 | AC-3.1, AC-3.2, AC-3.3 | DES-1, DES-3 | TASK-1, TASK-4 | `internal/qbt/client.go` (`Torrent`) | TEST-1, TEST-4 | TODO |
+| REQ-1 | AC-1.1, AC-1.2, AC-1.3 | DES-1, DES-2 | TASK-2, TASK-3 | `internal/formatter/format.go` (`FormatTorrentDetail`) | TEST-2, TEST-3 | Complete |
+| REQ-2 | AC-2.1, AC-2.2, AC-2.3 | DES-1, DES-2 | TASK-2, TASK-3 | `internal/formatter/format.go` (`FormatTorrentDetail`) | TEST-2, TEST-3 | Complete |
+| REQ-3 | AC-3.1, AC-3.2, AC-3.3 | DES-1, DES-3 | TASK-1, TASK-4 | `internal/qbt/types.go` (`Torrent`) | TEST-1, TEST-4 | Complete |
 
 ## Backward Traceability (Code → Requirement)
 
 | Source File | Functions/Types | Traces To | Via |
 |-------------|----------------|-----------|-----|
-| `internal/qbt/client.go` | `Torrent` (fields `Uploaded`, `Ratio`) | REQ-3 | TASK-1, DES-1, DES-3 |
-| `internal/formatter/formatter.go` | `FormatTorrentDetail` | REQ-1, REQ-2 | TASK-2, DES-2 |
-| `internal/formatter/formatter_test.go` | `TestFormatTorrentDetail` | REQ-1, REQ-2 | TASK-3, DES-2 |
+| `internal/qbt/types.go` | `Torrent` (fields `Uploaded`, `Ratio`) | REQ-3 | TASK-1, DES-1, DES-3 |
+| `internal/formatter/format.go` | `FormatTorrentDetail` | REQ-1, REQ-2 | TASK-2, DES-2 |
+| `internal/formatter/format_test.go` | `TestFormatTorrentDetail_UploadedAndRatio_NonZero`, `TestFormatTorrentDetail_UploadedAndRatio_Zero` | REQ-1, REQ-2 | TASK-3, DES-2 |
 | `internal/qbt/http_integration_test.go` | integration assertions | REQ-3 | TASK-4, DES-3 |
 
 ## Coverage Summary
 
 | Metric | Count | Covered | Gaps |
 |--------|-------|---------|------|
-| Requirements | 3 | 0 | 3 |
-| Acceptance Criteria | 9 | 0 | 9 |
-| Design Items | 3 | 0 | 3 |
-| Plan Tasks | 4 | 0 | 4 |
-| Verification Items | 4 | 0 | 4 |
+| Requirements | 3 | 3 | 0 |
+| Acceptance Criteria | 9 | 9 | 0 |
+| Design Items | 3 | 3 | 0 |
+| Plan Tasks | 4 | 4 | 0 |
+| Verification Items | 4 | 4 | 0 |
 
 ## Rules
 

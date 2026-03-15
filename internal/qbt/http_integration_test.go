@@ -171,6 +171,42 @@ func TestIntegration_PauseAndResumeTorrent(t *testing.T) {
 	}
 }
 
+// TestIntegration_UploadedAndRatioFields verifies that Uploaded and Ratio are
+// deserialised correctly from the qBittorrent API response (TEST-4, AC-3.1, AC-3.2, AC-3.3).
+func TestIntegration_UploadedAndRatioFields(t *testing.T) {
+	c := integrationClient(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	if err := c.Login(ctx); err != nil {
+		t.Fatalf("Login() error = %v", err)
+	}
+
+	// Ensure at least one torrent exists.
+	const ubuntuMagnet = "magnet:?xt=urn:btih:3b245504cf5f11bbdbe1201cea6a6bf45aee1bc0&dn=ubuntu-24.04-desktop-amd64.iso"
+	_ = c.AddMagnet(ctx, ubuntuMagnet, "")
+	time.Sleep(2 * time.Second)
+
+	torrents, err := c.ListTorrents(ctx, ListOptions{Filter: FilterAll})
+	if err != nil {
+		t.Fatalf("ListTorrents() error = %v", err)
+	}
+	if len(torrents) == 0 {
+		t.Skip("no torrents available to check Uploaded/Ratio fields")
+	}
+
+	// AC-3.1 and AC-3.2: all returned torrents must have non-negative Uploaded and Ratio
+	// (zero is valid for a freshly added torrent with no upload yet).
+	for _, tor := range torrents {
+		if tor.Uploaded < 0 {
+			t.Errorf("torrent %q: Uploaded = %d, want >= 0", tor.Hash, tor.Uploaded)
+		}
+		if tor.Ratio < 0 {
+			t.Errorf("torrent %q: Ratio = %f, want >= 0.0", tor.Hash, tor.Ratio)
+		}
+	}
+}
+
 // TestIntegration_ListTorrentsWithPagination verifies that the Limit parameter is
 // respected by ListTorrents.
 func TestIntegration_ListTorrentsWithPagination(t *testing.T) {

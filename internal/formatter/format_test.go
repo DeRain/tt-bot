@@ -405,6 +405,76 @@ func TestFormatTorrentDetail(t *testing.T) {
 	}
 }
 
+// TEST-2: Uploaded > 0 and Ratio > 0 — REQ-1 (AC-1.1, AC-1.3), REQ-2 (AC-2.1, AC-2.3)
+func TestFormatTorrentDetail_UploadedAndRatio_NonZero(t *testing.T) {
+	torrent := qbt.Torrent{
+		Hash:     "abc123",
+		Name:     "Ubuntu 24.04",
+		State:    "uploading",
+		Progress: 1.0,
+		Size:     4 * 1024 * 1024 * 1024,
+		DLSpeed:  0,
+		UPSpeed:  1024 * 1024,
+		Uploaded: 3_435_973_837, // ≈ 3.2 GB
+		Ratio:    2.13,
+		Category: "linux",
+	}
+
+	text := formatter.FormatTorrentDetail(torrent)
+
+	if !strings.Contains(text, "Uploaded: 3.2 GB") {
+		t.Errorf("expected 'Uploaded: 3.2 GB' in detail, got:\n%s", text)
+	}
+	if !strings.Contains(text, "Ratio: 2.13") {
+		t.Errorf("expected 'Ratio: 2.13' in detail, got:\n%s", text)
+	}
+
+	// AC-1.3: Uploaded line appears between Upload speed and State.
+	uploadIdx := strings.Index(text, "Upload:")
+	uploadedIdx := strings.Index(text, "Uploaded:")
+	stateIdx := strings.Index(text, "State:")
+	if uploadedIdx <= uploadIdx {
+		t.Errorf("Uploaded line should appear after Upload speed line")
+	}
+	if stateIdx <= uploadedIdx {
+		t.Errorf("State line should appear after Uploaded line")
+	}
+
+	// AC-2.3: Ratio line appears immediately after Uploaded line.
+	ratioIdx := strings.Index(text, "Ratio:")
+	if ratioIdx <= uploadedIdx {
+		t.Errorf("Ratio line should appear after Uploaded line")
+	}
+	if stateIdx <= ratioIdx {
+		t.Errorf("State line should appear after Ratio line")
+	}
+}
+
+// TEST-3: Uploaded == 0 and Ratio == 0.0 — REQ-1 (AC-1.2), REQ-2 (AC-2.2)
+func TestFormatTorrentDetail_UploadedAndRatio_Zero(t *testing.T) {
+	torrent := qbt.Torrent{
+		Hash:     "def456",
+		Name:     "Fresh Torrent",
+		State:    "downloading",
+		Progress: 0.1,
+		Size:     1024 * 1024 * 1024,
+		DLSpeed:  5 * 1024 * 1024,
+		UPSpeed:  0,
+		Uploaded: 0,
+		Ratio:    0.0,
+		Category: "test",
+	}
+
+	text := formatter.FormatTorrentDetail(torrent)
+
+	if !strings.Contains(text, "Uploaded: 0 B") {
+		t.Errorf("expected 'Uploaded: 0 B' in detail, got:\n%s", text)
+	}
+	if !strings.Contains(text, "Ratio: 0.00") {
+		t.Errorf("expected 'Ratio: 0.00' in detail, got:\n%s", text)
+	}
+}
+
 func TestFormatTorrentDetail_NoCategory(t *testing.T) {
 	torrent := qbt.Torrent{Name: "Test", Category: ""}
 	text := formatter.FormatTorrentDetail(torrent)

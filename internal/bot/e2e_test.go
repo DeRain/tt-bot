@@ -5,6 +5,7 @@ package bot
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -525,6 +526,130 @@ func TestE2E_DownloadingPaginationAndSelection(t *testing.T) {
 
 	if !sender.hasEditText("page 1/") {
 		t.Fatalf("expected list page after bk:d:1 back, got edits: %v", sender.editTexts())
+	}
+}
+
+// TestE2E_ListResponseContainsMappedStateLabel verifies that the /list command
+// response uses mapped state labels (emoji + human text) rather than raw
+// qBittorrent state strings. This covers the status-emojis feature requirement
+// that FormatState is applied to every torrent shown in the list view.
+func TestE2E_ListResponseContainsMappedStateLabel(t *testing.T) {
+	const (
+		chatID = int64(1009)
+		userID = int64(1009)
+	)
+
+	ctx := context.Background()
+	qbtClient := getQBTClient(t)
+
+	// Ensure at least one torrent exists so the list is non-empty.
+	if err := qbtClient.AddMagnet(ctx, ubuntuMagnet, ""); err != nil {
+		t.Logf("AddMagnet (pre-seed): %v", err)
+	}
+	time.Sleep(2 * time.Second)
+
+	// Confirm there is at least one torrent with a known state to assert on.
+	torrents, err := qbtClient.ListTorrents(ctx, qbt.ListOptions{Filter: qbt.FilterAll})
+	if err != nil {
+		t.Fatalf("ListTorrents() error = %v", err)
+	}
+	if len(torrents) == 0 {
+		t.Skip("no torrents available for state-label test")
+	}
+
+	sender := &mockSender{}
+	auth := NewAuthorizer([]int64{userID})
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+
+	update := newCommandUpdate(chatID, userID, "list")
+	h.HandleUpdate(ctx, update)
+
+	if len(sender.sentMessages) == 0 {
+		t.Fatal("expected at least one message in response to /list")
+	}
+
+	// The list text must NOT contain any raw qBittorrent state string.
+	// Mapped labels always start with an emoji; raw states never do.
+	rawStates := []string{
+		"downloading", "uploading", "pausedDL", "pausedUP",
+		"stalledDL", "stalledUP", "checkingDL", "checkingUP",
+		"queuedDL", "queuedUP", "metaDL", "forcedDL", "forcedUP",
+		"allocating", "moving", "error", "missingFiles", "unknown",
+		"checkingResumeData",
+	}
+	for _, text := range sender.sentTexts() {
+		for _, raw := range rawStates {
+			// A mapped label for "downloading" would appear as "⬇️ Downloading",
+			// never as the bare word "downloading" followed by a newline or space
+			// (the format is "| <state>\n"). We check for the raw token surrounded
+			// by a pipe-space prefix which is the list entry format.
+			needle := "| " + raw
+			if strings.Contains(text, needle) {
+				t.Errorf("/list response contains raw state %q; expected a mapped label (e.g. '⬇️ Downloading')", raw)
+			}
+		}
+	}
+
+	// Positive check: at least one mapped label must appear (emoji present).
+	foundMapped := false
+	mappedPrefixes := []string{"⬇️", "🌱", "⏸️", "🕐", "🔍", "⏫", "💾", "🔎", "⏬", "📦", "❌", "⚠️", "❓"}
+	for _, text := range sender.sentTexts() {
+		for _, prefix := range mappedPrefixes {
+			if strings.Contains(text, prefix) {
+				foundMapped = true
+				break
+			}
+		}
+		if foundMapped {
+			break
+		}
+	}
+	if !foundMapped {
+		t.Errorf("/list response contains no mapped state emoji; raw texts: %v", sender.sentTexts())
+	}
+}
+
+// TestE2E_DetailViewContainsUploadedAndRatio verifies that selecting a torrent
+// from the list shows a detail view that includes Uploaded: and Ratio: fields.
+// This covers the torrent-detail-extra feature requirements.
+func TestE2E_DetailViewContainsUploadedAndRatio(t *testing.T) {
+	const (
+		chatID = int64(1010)
+		userID = int64(1010)
+	)
+
+	ctx := context.Background()
+	qbtClient := getQBTClient(t)
+
+	// Ensure at least one torrent exists.
+	if err := qbtClient.AddMagnet(ctx, ubuntuMagnet, ""); err != nil {
+		t.Logf("AddMagnet (pre-seed): %v", err)
+	}
+	time.Sleep(2 * time.Second)
+
+	torrents, err := qbtClient.ListTorrents(ctx, qbt.ListOptions{Filter: qbt.FilterAll})
+	if err != nil {
+		t.Fatalf("ListTorrents() error = %v", err)
+	}
+	if len(torrents) == 0 {
+		t.Skip("no torrents available for detail view test")
+	}
+	hash := torrents[0].Hash
+
+	sender := &mockSender{}
+	auth := NewAuthorizer([]int64{userID})
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+
+	// Select the first torrent to trigger the detail view.
+	selCallback := newCallbackUpdate(chatID, "cb-detail-extra", "sel:a:1:"+hash)
+	h.HandleUpdate(ctx, selCallback)
+
+	// The detail view must contain Uploaded: and Ratio: fields.
+	if !sender.hasEditText("Uploaded:") {
+		t.Fatalf("expected 'Uploaded:' field in torrent detail view, got edits: %v", sender.editTexts())
+	}
+	if !sender.hasEditText("Ratio:") {
+		t.Fatalf("expected 'Ratio:' field in torrent detail view, got edits: %v", sender.editTexts())
 	}
 }
 
