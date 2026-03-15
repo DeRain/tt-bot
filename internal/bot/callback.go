@@ -13,17 +13,18 @@ import (
 )
 
 // listTorrentsForFilter fetches torrents from qBittorrent, applying client-side
-// post-filtering for virtual filters like FilterDownloading.
+// post-filtering for virtual filters like FilterDownloading and FilterUploading.
 func (h *Handler) listTorrentsForFilter(ctx context.Context, filter qbt.TorrentFilter) ([]qbt.Torrent, error) {
 	apiFilter := filter
-	if filter == qbt.FilterDownloading {
+	if filter == qbt.FilterDownloading || filter == qbt.FilterUploading {
 		apiFilter = qbt.FilterAll
 	}
 	all, err := h.qbt.ListTorrents(ctx, qbt.ListOptions{Filter: apiFilter})
 	if err != nil {
 		return nil, err
 	}
-	if filter == qbt.FilterDownloading {
+	switch filter {
+	case qbt.FilterDownloading:
 		filtered := make([]qbt.Torrent, 0, len(all))
 		for _, t := range all {
 			if t.Progress < 1.0 {
@@ -31,8 +32,17 @@ func (h *Handler) listTorrentsForFilter(ctx context.Context, filter qbt.TorrentF
 			}
 		}
 		return filtered, nil
+	case qbt.FilterUploading:
+		filtered := make([]qbt.Torrent, 0, len(all))
+		for _, t := range all {
+			if t.Progress == 1.0 {
+				filtered = append(filtered, t)
+			}
+		}
+		return filtered, nil
+	default:
+		return all, nil
 	}
-	return all, nil
 }
 
 // filterCharToFilter converts a single-character filter code to a TorrentFilter.
@@ -44,6 +54,8 @@ func filterCharToFilter(char string) (qbt.TorrentFilter, bool) {
 		return qbt.FilterActive, true
 	case "d":
 		return qbt.FilterDownloading, true
+	case "u":
+		return qbt.FilterUploading, true
 	default:
 		return "", false
 	}
@@ -58,6 +70,8 @@ func filterCharToPrefix(char string) string {
 		return "act"
 	case "d":
 		return "dw"
+	case "u":
+		return "up"
 	default:
 		return "all"
 	}
@@ -70,6 +84,8 @@ func filterToChar(filter qbt.TorrentFilter) string {
 		return "c"
 	case qbt.FilterDownloading:
 		return "d"
+	case qbt.FilterUploading:
+		return "u"
 	default:
 		return "a"
 	}
@@ -107,6 +123,14 @@ func (h *Handler) handleCallback(ctx context.Context, cq *tgbotapi.CallbackQuery
 			return
 		}
 		h.handlePaginationCallback(ctx, cq, qbt.FilterDownloading, "dw", page)
+
+	case strings.HasPrefix(data, "pg:up:"):
+		page, err := strconv.Atoi(strings.TrimPrefix(data, "pg:up:"))
+		if err != nil {
+			h.answerCallback(cq.ID, "Invalid page.")
+			return
+		}
+		h.handlePaginationCallback(ctx, cq, qbt.FilterUploading, "up", page)
 
 	case strings.HasPrefix(data, "sel:"):
 		h.handleSelectCallback(ctx, cq, strings.TrimPrefix(data, "sel:"))

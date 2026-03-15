@@ -149,6 +149,9 @@ func (h *Handler) handleCommand(ctx context.Context, msg *tgbotapi.Message) {
 
 	case "downloading":
 		h.sendTorrentPage(ctx, msg.Chat.ID, qbt.FilterDownloading, 1)
+
+	case "uploading":
+		h.sendTorrentPage(ctx, msg.Chat.ID, qbt.FilterUploading, 1)
 	}
 }
 
@@ -252,6 +255,8 @@ func (h *Handler) sendTorrentPage(ctx context.Context, chatID int64, filter qbt.
 		filterPrefix = "act"
 	case qbt.FilterDownloading:
 		filterPrefix = "dw"
+	case qbt.FilterUploading:
+		filterPrefix = "up"
 	default:
 		filterPrefix = "all"
 	}
