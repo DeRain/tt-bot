@@ -271,3 +271,9 @@ func (e *errorQBTClient) Categories(_ context.Context) ([]qbt.Category, error) {
 func (e *errorQBTClient) PauseTorrents(_ context.Context, _ []string) error          { return nil }
 func (e *errorQBTClient) ResumeTorrents(_ context.Context, _ []string) error         { return nil }
 func (e *errorQBTClient) DeleteTorrents(_ context.Context, _ []string, _ bool) error { return nil }
+func (e *errorQBTClient) ListFiles(_ context.Context, _ string) ([]qbt.TorrentFile, error) {
+	return nil, nil
+}
+func (e *errorQBTClient) SetFilePriority(_ context.Context, _ string, _ []int, _ qbt.FilePriority) error {
+	return nil
+}

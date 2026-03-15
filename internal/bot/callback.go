@@ -102,6 +102,9 @@ func (h *Handler) handleCallback(ctx context.Context, cq *tgbotapi.CallbackQuery
 	case strings.HasPrefix(data, "cat:"):
 		h.handleCategoryCallback(ctx, cq, strings.TrimPrefix(data, "cat:"))
 
+	case strings.HasPrefix(data, "pg:fl:"):
+		h.handleFilesPageNavCallback(ctx, cq, strings.TrimPrefix(data, "pg:fl:"))
+
 	case strings.HasPrefix(data, "pg:all:"):
 		page, err := strconv.Atoi(strings.TrimPrefix(data, "pg:all:"))
 		if err != nil {
@@ -143,6 +146,9 @@ func (h *Handler) handleCallback(ctx context.Context, cq *tgbotapi.CallbackQuery
 	case strings.HasPrefix(data, "re:"):
 		h.handleResumeCallback(ctx, cq, strings.TrimPrefix(data, "re:"))
 
+	case strings.HasPrefix(data, "bk:fl:"):
+		h.handleBackFromFilesCallback(ctx, cq, strings.TrimPrefix(data, "bk:fl:"))
+
 	case strings.HasPrefix(data, "bk:"):
 		h.handleBackCallback(ctx, cq, strings.TrimPrefix(data, "bk:"))
 
@@ -157,6 +163,15 @@ func (h *Handler) handleCallback(ctx context.Context, cq *tgbotapi.CallbackQuery
 
 	case strings.HasPrefix(data, "rc:"):
 		h.handleRemoveCancelCallback(ctx, cq, strings.TrimPrefix(data, "rc:"))
+
+	case strings.HasPrefix(data, "fl:"):
+		h.handleFilesPageCallback(ctx, cq, strings.TrimPrefix(data, "fl:"))
+
+	case strings.HasPrefix(data, "fs:"):
+		h.handleFileSelectCallback(ctx, cq, strings.TrimPrefix(data, "fs:"))
+
+	case strings.HasPrefix(data, "fp:"):
+		h.handleFilePriorityCallback(ctx, cq, strings.TrimPrefix(data, "fp:"))
 
 	case data == "noop":
 		// Page indicator button — dismiss spinner, do nothing.
@@ -491,6 +506,333 @@ func (h *Handler) handleRemoveDeleteCallback(ctx context.Context, cq *tgbotapi.C
 
 	tgKB := toTGKeyboard(kb)
 	h.answerCallback(cq.ID, "Removed.")
+	h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &tgKB)
+}
+
+// isValidFilePriority reports whether p is one of the four defined qBittorrent
+// per-file priority values (skip, normal, high, maximum).
+func isValidFilePriority(p int) bool {
+	switch qbt.FilePriority(p) {
+	case qbt.FilePrioritySkip, qbt.FilePriorityNormal,
+		qbt.FilePriorityHigh, qbt.FilePriorityMaximum:
+		return true
+	}
+	return false
+}
+
+// parseFileSelectCallback parses fs:<hash>:<fileIndex>:<filePage>:<filterChar>:<listPage>.
+// Returns an error if the format is invalid or fileIndex is negative.
+func parseFileSelectCallback(data string) (hash string, fileIndex, filePage int, filterChar string, listPage int, err error) {
+	parts := strings.SplitN(data, ":", 5)
+	if len(parts) != 5 {
+		return "", 0, 0, "", 0, fmt.Errorf("invalid fs: format")
+	}
+	hash = parts[0]
+	fileIndex, err = strconv.Atoi(parts[1])
+	if err != nil {
+		return "", 0, 0, "", 0, fmt.Errorf("invalid fileIndex: %w", err)
+	}
+	if fileIndex < 0 {
+		return "", 0, 0, "", 0, fmt.Errorf("fileIndex must be non-negative")
+	}
+	filePage, err = strconv.Atoi(parts[2])
+	if err != nil {
+		return "", 0, 0, "", 0, fmt.Errorf("invalid filePage: %w", err)
+	}
+	filterChar = parts[3]
+	listPage, err = strconv.Atoi(parts[4])
+	if err != nil {
+		return "", 0, 0, "", 0, fmt.Errorf("invalid listPage: %w", err)
+	}
+	return hash, fileIndex, filePage, filterChar, listPage, nil
+}
+
+// parseFilePriorityCallback parses fp:<hash>:<fileIndex>:<priority>:<filePage>:<filterChar>:<listPage>.
+// Returns an error if the format is invalid or fileIndex is negative.
+func parseFilePriorityCallback(data string) (hash string, fileIndex, priority, filePage int, filterChar string, listPage int, err error) {
+	parts := strings.SplitN(data, ":", 6)
+	if len(parts) != 6 {
+		return "", 0, 0, 0, "", 0, fmt.Errorf("invalid fp: format")
+	}
+	hash = parts[0]
+	fileIndex, err = strconv.Atoi(parts[1])
+	if err != nil {
+		return "", 0, 0, 0, "", 0, fmt.Errorf("invalid fileIndex: %w", err)
+	}
+	if fileIndex < 0 {
+		return "", 0, 0, 0, "", 0, fmt.Errorf("fileIndex must be non-negative")
+	}
+	priority, err = strconv.Atoi(parts[2])
+	if err != nil {
+		return "", 0, 0, 0, "", 0, fmt.Errorf("invalid priority: %w", err)
+	}
+	filePage, err = strconv.Atoi(parts[3])
+	if err != nil {
+		return "", 0, 0, 0, "", 0, fmt.Errorf("invalid filePage: %w", err)
+	}
+	filterChar = parts[4]
+	listPage, err = strconv.Atoi(parts[5])
+	if err != nil {
+		return "", 0, 0, 0, "", 0, fmt.Errorf("invalid listPage: %w", err)
+	}
+	return hash, fileIndex, priority, filePage, filterChar, listPage, nil
+}
+
+// parseFilesOpenCallback parses fl:<filterChar>:<listPage>:<hash>.
+func parseFilesOpenCallback(data string) (filterChar string, listPage int, hash string, err error) {
+	parts := strings.SplitN(data, ":", 3)
+	if len(parts) != 3 {
+		return "", 0, "", fmt.Errorf("invalid fl: format")
+	}
+	filterChar = parts[0]
+	listPage, err = strconv.Atoi(parts[1])
+	if err != nil {
+		return "", 0, "", fmt.Errorf("invalid listPage: %w", err)
+	}
+	hash = parts[2]
+	return filterChar, listPage, hash, nil
+}
+
+// parseFilesNavCallback parses pg:fl:<hash>:<filePage>:<filterChar>:<listPage>.
+func parseFilesNavCallback(data string) (hash string, filePage int, filterChar string, listPage int, err error) {
+	parts := strings.SplitN(data, ":", 4)
+	if len(parts) != 4 {
+		return "", 0, "", 0, fmt.Errorf("invalid pg:fl: format")
+	}
+	hash = parts[0]
+	filePage, err = strconv.Atoi(parts[1])
+	if err != nil {
+		return "", 0, "", 0, fmt.Errorf("invalid filePage: %w", err)
+	}
+	filterChar = parts[2]
+	listPage, err = strconv.Atoi(parts[3])
+	if err != nil {
+		return "", 0, "", 0, fmt.Errorf("invalid listPage: %w", err)
+	}
+	return hash, filePage, filterChar, listPage, nil
+}
+
+// parseBackFromFilesCallback parses bk:fl:<filterChar>:<listPage>:<hash>.
+func parseBackFromFilesCallback(data string) (filterChar string, listPage int, hash string, err error) {
+	parts := strings.SplitN(data, ":", 3)
+	if len(parts) != 3 {
+		return "", 0, "", fmt.Errorf("invalid bk:fl: format")
+	}
+	filterChar = parts[0]
+	listPage, err = strconv.Atoi(parts[1])
+	if err != nil {
+		return "", 0, "", fmt.Errorf("invalid listPage: %w", err)
+	}
+	hash = parts[2]
+	return filterChar, listPage, hash, nil
+}
+
+// renderFilesPage fetches files for hash and builds the message text and keyboard
+// for the given filePage. It is shared by handleFilesPageCallback,
+// handleFilesPageNavCallback, and handleFilePriorityCallback.
+func (h *Handler) renderFilesPage(
+	ctx context.Context,
+	hash string,
+	torrentName string,
+	filePage int,
+	filterChar string,
+	listPage int,
+) (string, formatter.Keyboard, error) {
+	files, err := h.qbt.ListFiles(ctx, hash)
+	if err != nil {
+		return "", nil, err
+	}
+
+	totalFilePages := formatter.TotalPages(len(files), formatter.FilesPerPage)
+	if filePage < 1 {
+		filePage = 1
+	}
+	if filePage > totalFilePages {
+		filePage = totalFilePages
+	}
+
+	offset := (filePage - 1) * formatter.FilesPerPage
+	end := offset + formatter.FilesPerPage
+	if end > len(files) {
+		end = len(files)
+	}
+	var pageFiles []qbt.TorrentFile
+	if offset < len(files) {
+		pageFiles = files[offset:end]
+	}
+
+	text := formatter.FormatFileList(torrentName, pageFiles, filePage, totalFilePages)
+	kb := formatter.FileListKeyboard(pageFiles, hash, offset, filePage, totalFilePages, filterChar, listPage)
+	return text, kb, nil
+}
+
+// handleFilesPageCallback handles fl:<filterChar>:<listPage>:<hash> — opens the
+// first page of a torrent's file list from the detail view.
+func (h *Handler) handleFilesPageCallback(ctx context.Context, cq *tgbotapi.CallbackQuery, data string) {
+	filterChar, listPage, hash, err := parseFilesOpenCallback(data)
+	if err != nil {
+		h.answerCallback(cq.ID, "Invalid action.")
+		return
+	}
+
+	// Fetch torrent name for the header.
+	filter, ok := filterCharToFilter(filterChar)
+	if !ok {
+		h.answerCallback(cq.ID, "Invalid filter.")
+		return
+	}
+	all, listErr := h.listTorrentsForFilter(ctx, filter)
+	torrentName := hash
+	if listErr == nil {
+		if t, found := findTorrentByHash(all, hash); found {
+			torrentName = t.Name
+		}
+	}
+
+	text, kb, err := h.renderFilesPage(ctx, hash, torrentName, 1, filterChar, listPage)
+	if err != nil {
+		h.answerCallback(cq.ID, "Failed to load files.")
+		return
+	}
+
+	tgKB := toTGKeyboard(kb)
+	h.answerCallback(cq.ID, "")
+	h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &tgKB)
+}
+
+// handleFilesPageNavCallback handles pg:fl:<hash>:<filePage>:<filterChar>:<listPage> —
+// navigates between file list pages.
+func (h *Handler) handleFilesPageNavCallback(ctx context.Context, cq *tgbotapi.CallbackQuery, data string) {
+	hash, filePage, filterChar, listPage, err := parseFilesNavCallback(data)
+	if err != nil {
+		h.answerCallback(cq.ID, "Invalid action.")
+		return
+	}
+
+	// Fetch torrent name for the header.
+	filter, ok := filterCharToFilter(filterChar)
+	if !ok {
+		h.answerCallback(cq.ID, "Invalid filter.")
+		return
+	}
+	all, listErr := h.listTorrentsForFilter(ctx, filter)
+	torrentName := hash
+	if listErr == nil {
+		if t, found := findTorrentByHash(all, hash); found {
+			torrentName = t.Name
+		}
+	}
+
+	text, kb, err := h.renderFilesPage(ctx, hash, torrentName, filePage, filterChar, listPage)
+	if err != nil {
+		h.answerCallback(cq.ID, "Failed to load files.")
+		return
+	}
+
+	tgKB := toTGKeyboard(kb)
+	h.answerCallback(cq.ID, "")
+	h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &tgKB)
+}
+
+// handleBackFromFilesCallback handles bk:fl:<filterChar>:<listPage>:<hash> — returns
+// from the file list view to the torrent detail view.
+func (h *Handler) handleBackFromFilesCallback(ctx context.Context, cq *tgbotapi.CallbackQuery, data string) {
+	filterChar, listPage, hash, err := parseBackFromFilesCallback(data)
+	if err != nil {
+		h.answerCallback(cq.ID, "Invalid action.")
+		return
+	}
+
+	filter, ok := filterCharToFilter(filterChar)
+	if !ok {
+		h.answerCallback(cq.ID, "Invalid filter.")
+		return
+	}
+
+	all, err := h.listTorrentsForFilter(ctx, filter)
+	if err != nil {
+		h.answerCallback(cq.ID, fmt.Sprintf("Error: %v", err))
+		return
+	}
+
+	torrent, found := findTorrentByHash(all, hash)
+	if !found {
+		h.answerCallback(cq.ID, "Torrent not found.")
+		return
+	}
+
+	text := formatter.FormatTorrentDetail(torrent)
+	kb := toTGKeyboard(formatter.TorrentDetailKeyboard(hash, filterChar, listPage, torrent.State))
+
+	h.answerCallback(cq.ID, "")
+	h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &kb)
+}
+
+// handleFileSelectCallback handles fs: callbacks — showing the priority selector for a file.
+// Format: fs:<hash>:<fileIndex>:<filePage>:<filterChar>:<listPage>
+func (h *Handler) handleFileSelectCallback(ctx context.Context, cq *tgbotapi.CallbackQuery, data string) {
+	hash, fileIndex, filePage, filterChar, listPage, err := parseFileSelectCallback(data)
+	if err != nil {
+		h.answerCallback(cq.ID, "Invalid action.")
+		return
+	}
+
+	// Fetch current priority for this file to mark it in the keyboard.
+	files, listErr := h.qbt.ListFiles(ctx, hash)
+	var currentPriority qbt.FilePriority
+	if listErr == nil {
+		for _, f := range files {
+			if f.Index == fileIndex {
+				currentPriority = f.Priority
+				break
+			}
+		}
+	}
+
+	kb := toTGKeyboard(formatter.PriorityKeyboard(hash, fileIndex, currentPriority, filePage, filterChar, listPage))
+	h.answerCallback(cq.ID, "")
+	h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, "Select priority:", &kb)
+}
+
+// handleFilePriorityCallback handles fp: callbacks — setting a file's download priority.
+// Format: fp:<hash>:<fileIndex>:<priority>:<filePage>:<filterChar>:<listPage>
+func (h *Handler) handleFilePriorityCallback(ctx context.Context, cq *tgbotapi.CallbackQuery, data string) {
+	hash, fileIndex, priority, filePage, filterChar, listPage, err := parseFilePriorityCallback(data)
+	if err != nil {
+		h.answerCallback(cq.ID, "Invalid action.")
+		return
+	}
+	if !isValidFilePriority(priority) {
+		h.answerCallback(cq.ID, "Invalid priority.")
+		return
+	}
+	if err := h.qbt.SetFilePriority(ctx, hash, []int{fileIndex}, qbt.FilePriority(priority)); err != nil {
+		h.answerCallback(cq.ID, fmt.Sprintf("Failed to set priority: %v", err))
+		return
+	}
+
+	// Re-fetch the file list to show the updated priority.
+	filter, ok := filterCharToFilter(filterChar)
+	if !ok {
+		h.answerCallback(cq.ID, "Priority updated.")
+		return
+	}
+	all, listErr := h.listTorrentsForFilter(ctx, filter)
+	torrentName := hash
+	if listErr == nil {
+		if t, found := findTorrentByHash(all, hash); found {
+			torrentName = t.Name
+		}
+	}
+
+	text, kb, renderErr := h.renderFilesPage(ctx, hash, torrentName, filePage, filterChar, listPage)
+	if renderErr != nil {
+		h.answerCallback(cq.ID, "Priority updated.")
+		return
+	}
+
+	tgKB := toTGKeyboard(kb)
+	h.answerCallback(cq.ID, "Priority updated.")
 	h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &tgKB)
 }
 

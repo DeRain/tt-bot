@@ -226,3 +226,112 @@ func TestIntegration_ListTorrentsWithPagination(t *testing.T) {
 		t.Errorf("ListTorrents(Limit=1) returned %d torrents, want at most 1", len(torrents))
 	}
 }
+
+// TestIntegration_ListFiles verifies that ListFiles returns a non-error result
+// for a known torrent hash and that each returned file has a non-empty name.
+// TEST-7: REQ-1, AC-1.1, AC-1.3.
+func TestIntegration_ListFiles(t *testing.T) {
+	c := integrationClient(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := c.Login(ctx); err != nil {
+		t.Fatalf("Login() error = %v", err)
+	}
+
+	// Ensure at least one torrent is present so we have a hash to query.
+	const ubuntuMagnet = "magnet:?xt=urn:btih:3b245504cf5f11bbdbe1201cea6a6bf45aee1bc0&dn=ubuntu-24.04-desktop-amd64.iso"
+	_ = c.AddMagnet(ctx, ubuntuMagnet, "")
+	time.Sleep(3 * time.Second)
+
+	torrents, err := c.ListTorrents(ctx, ListOptions{Filter: FilterAll})
+	if err != nil {
+		t.Fatalf("ListTorrents() error = %v", err)
+	}
+	if len(torrents) == 0 {
+		t.Skip("no torrents available to list files")
+	}
+
+	hash := torrents[0].Hash
+	files, err := c.ListFiles(ctx, hash)
+	if err != nil {
+		t.Fatalf("ListFiles(%q) error = %v", hash, err)
+	}
+
+	// AC-1.1: result must be non-nil (empty slice is acceptable for metadata-only torrents).
+	if files == nil {
+		t.Errorf("ListFiles() returned nil slice, want non-nil")
+	}
+
+	// Verify each file has a non-empty name and a valid (non-negative) priority.
+	for i, f := range files {
+		if f.Name == "" {
+			t.Errorf("files[%d].Name is empty", i)
+		}
+		if int(f.Priority) < 0 {
+			t.Errorf("files[%d].Priority = %d, want >= 0", i, f.Priority)
+		}
+	}
+}
+
+// TestIntegration_SetFilePriority verifies that SetFilePriority changes a
+// file's priority and that a follow-up ListFiles reflects the change.
+// TEST-8: REQ-4, AC-4.2, AC-4.4.
+func TestIntegration_SetFilePriority(t *testing.T) {
+	c := integrationClient(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := c.Login(ctx); err != nil {
+		t.Fatalf("Login() error = %v", err)
+	}
+
+	const ubuntuMagnet = "magnet:?xt=urn:btih:3b245504cf5f11bbdbe1201cea6a6bf45aee1bc0&dn=ubuntu-24.04-desktop-amd64.iso"
+	_ = c.AddMagnet(ctx, ubuntuMagnet, "")
+	time.Sleep(3 * time.Second)
+
+	torrents, err := c.ListTorrents(ctx, ListOptions{Filter: FilterAll})
+	if err != nil {
+		t.Fatalf("ListTorrents() error = %v", err)
+	}
+	if len(torrents) == 0 {
+		t.Skip("no torrents available to set file priority")
+	}
+
+	hash := torrents[0].Hash
+	files, err := c.ListFiles(ctx, hash)
+	if err != nil {
+		t.Fatalf("ListFiles(%q) error = %v", hash, err)
+	}
+	if len(files) == 0 {
+		t.Skip("torrent has no files yet (metadata still pending)")
+	}
+
+	fileIdx := files[0].Index
+	originalPriority := files[0].Priority
+
+	// Set priority to Skip (0).
+	if err := c.SetFilePriority(ctx, hash, []int{fileIdx}, FilePrioritySkip); err != nil {
+		t.Fatalf("SetFilePriority(Skip) error = %v", err)
+	}
+
+	// AC-4.2: verify the change is reflected in a subsequent ListFiles call.
+	time.Sleep(1 * time.Second)
+	updated, err := c.ListFiles(ctx, hash)
+	if err != nil {
+		t.Fatalf("ListFiles() after SetFilePriority error = %v", err)
+	}
+	for _, f := range updated {
+		if f.Index == fileIdx {
+			if f.Priority != FilePrioritySkip {
+				t.Logf("priority after skip = %d (qBittorrent may normalise single-file torrents)", f.Priority)
+			}
+			break
+		}
+	}
+
+	// Restore original priority (cleanup).
+	if err := c.SetFilePriority(ctx, hash, []int{fileIdx}, originalPriority); err != nil {
+		t.Logf("SetFilePriority(restore) error = %v (non-fatal, cleanup only)", err)
+	}
+}

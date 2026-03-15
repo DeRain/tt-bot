@@ -4,6 +4,7 @@ package bot
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -898,6 +899,184 @@ func TestE2E_RemoveCancelReturnsToDetail(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("torrent %s should still exist after cancel (AC-6.2)", hash)
+	}
+}
+
+// TestE2E_DetailKeyboardContainsFilesButton verifies that the detail keyboard
+// rendered after selecting a torrent includes a "Files" button with an fl: callback.
+// Covers AC-5.1 (TEST-5, TEST-6).
+func TestE2E_DetailKeyboardContainsFilesButton(t *testing.T) {
+	const (
+		chatID = int64(1015)
+		userID = int64(1015)
+	)
+
+	ctx := context.Background()
+	qbtClient := getQBTClient(t)
+
+	if err := qbtClient.AddMagnet(ctx, ubuntuMagnet, ""); err != nil {
+		t.Logf("AddMagnet (pre-seed): %v", err)
+	}
+	time.Sleep(2 * time.Second)
+
+	torrents, err := qbtClient.ListTorrents(ctx, qbt.ListOptions{Filter: qbt.FilterAll})
+	if err != nil {
+		t.Fatalf("ListTorrents() error = %v", err)
+	}
+	if len(torrents) == 0 {
+		t.Skip("no torrents available for Files button test")
+	}
+	hash := torrents[0].Hash
+
+	sender := &mockSender{}
+	auth := NewAuthorizer([]int64{userID})
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+
+	// Select the torrent to render the detail keyboard.
+	selCallback := newCallbackUpdate(chatID, "cb-fl-btn", "sel:a:1:"+hash)
+	h.HandleUpdate(ctx, selCallback)
+
+	// AC-5.1: the detail keyboard must contain a fl: Files button.
+	found := false
+	for _, msg := range sender.sentMessages {
+		if em, ok := msg.(tgbotapi.EditMessageTextConfig); ok && em.ReplyMarkup != nil {
+			for _, row := range em.ReplyMarkup.InlineKeyboard {
+				for _, btn := range row {
+					if btn.CallbackData != nil && len(*btn.CallbackData) >= 3 && (*btn.CallbackData)[:3] == "fl:" {
+						found = true
+					}
+				}
+			}
+		}
+	}
+	if !found {
+		t.Fatal("expected fl: Files button in detail keyboard (AC-5.1)")
+	}
+}
+
+// TestE2E_FileListCallback verifies that tapping the Files button loads the
+// file list for a real torrent. Covers AC-1.1, AC-1.2, AC-3.2 (TEST-6, TEST-7).
+func TestE2E_FileListCallback(t *testing.T) {
+	const (
+		chatID = int64(1016)
+		userID = int64(1016)
+	)
+
+	ctx := context.Background()
+	qbtClient := getQBTClient(t)
+
+	if err := qbtClient.AddMagnet(ctx, ubuntuMagnet, ""); err != nil {
+		t.Logf("AddMagnet (pre-seed): %v", err)
+	}
+	time.Sleep(2 * time.Second)
+
+	torrents, err := qbtClient.ListTorrents(ctx, qbt.ListOptions{Filter: qbt.FilterAll})
+	if err != nil {
+		t.Fatalf("ListTorrents() error = %v", err)
+	}
+	if len(torrents) == 0 {
+		t.Skip("no torrents available for file list callback test")
+	}
+	hash := torrents[0].Hash
+
+	sender := &mockSender{}
+	auth := NewAuthorizer([]int64{userID})
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+
+	// fl:<filterChar>:<listPage>:<hash> — open file list.
+	flCallback := newCallbackUpdate(chatID, "cb-fl-e2e", "fl:a:1:"+hash)
+	h.HandleUpdate(ctx, flCallback)
+
+	// AC-1.1: callback answered without error.
+	answered := false
+	for _, msg := range sender.sentMessages {
+		if _, ok := msg.(tgbotapi.CallbackConfig); ok {
+			answered = true
+		}
+	}
+	if !answered {
+		t.Fatal("expected callback answer after fl: callback")
+	}
+
+	// The message should be edited to show files content (or a "Failed to load
+	// files" message if metadata is still pending — both are valid outcomes for
+	// this integration test since the torrent may not have metadata yet).
+	if len(sender.editTexts()) == 0 {
+		t.Fatal("expected at least one message edit after fl: callback")
+	}
+}
+
+// TestE2E_FilePriorityChange verifies the full file priority flow against a
+// real qBittorrent instance: fl: → fs: → fp:. Covers AC-4.1, AC-4.2 (TEST-8).
+func TestE2E_FilePriorityChange(t *testing.T) {
+	const (
+		chatID = int64(1017)
+		userID = int64(1017)
+	)
+
+	ctx := context.Background()
+	qbtClient := getQBTClient(t)
+
+	if err := qbtClient.AddMagnet(ctx, ubuntuMagnet, ""); err != nil {
+		t.Logf("AddMagnet (pre-seed): %v", err)
+	}
+	time.Sleep(3 * time.Second)
+
+	torrents, err := qbtClient.ListTorrents(ctx, qbt.ListOptions{Filter: qbt.FilterAll})
+	if err != nil {
+		t.Fatalf("ListTorrents() error = %v", err)
+	}
+	if len(torrents) == 0 {
+		t.Skip("no torrents available for file priority test")
+	}
+	hash := torrents[0].Hash
+
+	// Check whether files are available yet (metadata may still be pending).
+	files, err := qbtClient.ListFiles(ctx, hash)
+	if err != nil || len(files) == 0 {
+		t.Skip("torrent has no files yet (metadata pending) — skipping priority test")
+	}
+
+	sender := &mockSender{}
+	auth := NewAuthorizer([]int64{userID})
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+
+	fileIdx := files[0].Index
+
+	// Step 1: fs: shows priority keyboard (AC-4.1).
+	sender.sentMessages = nil
+	fsCallback := newCallbackUpdate(chatID, "cb-fs-e2e",
+		"fs:"+hash+":"+fmt.Sprintf("%d", fileIdx)+":1:a:1")
+	h.HandleUpdate(ctx, fsCallback)
+
+	// Must answer the callback and edit the message.
+	answered := false
+	for _, msg := range sender.sentMessages {
+		if _, ok := msg.(tgbotapi.CallbackConfig); ok {
+			answered = true
+		}
+	}
+	if !answered {
+		t.Fatal("expected callback answer after fs: callback")
+	}
+	if len(sender.editTexts()) == 0 {
+		t.Fatal("expected message edit to show priority keyboard (AC-4.1)")
+	}
+
+	// Step 2: fp: sets priority and shows updated file list (AC-4.2).
+	sender.sentMessages = nil
+	fpCallback := newCallbackUpdate(chatID, "cb-fp-e2e",
+		"fp:"+hash+":"+fmt.Sprintf("%d", fileIdx)+":1:1:a:1")
+	h.HandleUpdate(ctx, fpCallback)
+
+	prioritySet := false
+	for _, msg := range sender.sentMessages {
+		if ca, ok := msg.(tgbotapi.CallbackConfig); ok && ca.Text == "Priority updated." {
+			prioritySet = true
+		}
+	}
+	if !prioritySet {
+		t.Fatalf("expected 'Priority updated.' callback answer after fp:, got: %v", sender.sentMessages)
 	}
 }
 

@@ -36,4 +36,12 @@ type Client interface {
 	// DeleteTorrents removes one or more torrents identified by info-hash.
 	// If deleteFiles is true, the associated downloaded data is also deleted from disk.
 	DeleteTorrents(ctx context.Context, hashes []string, deleteFiles bool) error
+
+	// ListFiles returns the files contained within the torrent identified by hash.
+	ListFiles(ctx context.Context, hash string) ([]TorrentFile, error)
+
+	// SetFilePriority sets the download priority for the given file indices within
+	// the torrent identified by hash. fileIndices must be non-negative integers
+	// matching the Index field of TorrentFile entries returned by ListFiles.
+	SetFilePriority(ctx context.Context, hash string, fileIndices []int, priority FilePriority) error
 }
