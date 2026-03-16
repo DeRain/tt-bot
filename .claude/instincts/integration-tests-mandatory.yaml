@@ -1,0 +1,16 @@
+---
+id: tt-bot-integration-tests
+trigger: "when completing any feature or fix"
+confidence: 1.0
+domain: testing
+source: local-repo-analysis
+evidence: "qBittorrent v5 renamed /pause to /stop; only make test-integration caught the 404s. Unit mocks gave false positives."
+---
+
+# Run Integration Tests Before Every Commit
+
+## Action
+Always run `make test-integration` before committing. Never mark an acceptance criterion as PASS based on unit tests alone.
+
+## Why
+qBittorrent v5 renamed `/pause` -> `/stop` and `/resume` -> `/start`. Unit tests with httptest mocks passed perfectly. Only Docker-based integration tests against a real qBittorrent instance caught the 404 errors. This is a learned incident, not a theoretical concern.

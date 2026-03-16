@@ -1,0 +1,20 @@
+---
+id: tt-bot-cochange-tests
+trigger: "when modifying any implementation file"
+confidence: 0.95
+domain: testing
+source: local-repo-analysis
+evidence: "9/9 top co-change pairs include test files; callback_test.go+handler_test.go co-changed 9 times, format_test.go+format.go 7 times"
+---
+
+# Always Update Tests When Changing Implementation
+
+## Action
+Never commit an implementation change without updating the corresponding test file in the same commit. Key pairs:
+- `bot/callback.go` -> `bot/callback_test.go` + `bot/handler_test.go`
+- `bot/handler.go` -> `bot/handler_test.go`
+- `formatter/format.go` -> `formatter/format_test.go`
+- `qbt/http.go` -> `qbt/http_test.go`
+
+## Why
+100% of feature commits in this repo include co-changed test files. The project enforces 80%+ coverage and mandatory integration tests.

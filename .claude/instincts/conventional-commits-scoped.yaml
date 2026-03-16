@@ -1,0 +1,24 @@
+---
+id: tt-bot-commit-convention
+trigger: "when writing a commit message"
+confidence: 0.9
+domain: git
+source: local-repo-analysis
+evidence: "43/49 commits (88%) follow conventional commit format; feature commits use scoped format feat(<feature-id>)"
+---
+
+# Use Conventional Commits with Feature Scope
+
+## Action
+Format: `<type>(<scope>): <description>`
+
+Types: feat, fix, chore, docs, test, refactor, perf
+Scope: feature-id from docs/features/ (e.g., torrent-files, uploading-list)
+
+Examples:
+- `feat(torrent-files): view and manage torrent file download priorities`
+- `fix: exclude paused/stopped uploads from /uploading list`
+- `test(status-emojis): add E2E integration tests`
+
+## Why
+88% of existing commits follow this convention. Scoped feature IDs enable traceability back to docs/features/<id>/.

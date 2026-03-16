@@ -1,0 +1,20 @@
+---
+id: tt-bot-callback-encoding
+trigger: "when adding inline keyboard buttons or callback data"
+confidence: 0.9
+domain: telegram
+source: local-repo-analysis
+evidence: "Existing learned skill telegram-callback-encoding.md; all callbacks use short prefix pattern (cat:, pg:, sel:, rm:, noop)"
+---
+
+# Respect 64-Byte Callback Data Limit
+
+## Action
+Use short colon-delimited prefixes for callback data:
+- `cat:<name>` (category), `pg:all:<N>` / `pg:act:<N>` (pagination)
+- `sel:<hash>` (select torrent), `rm:<hash>` (remove), `noop` (display-only)
+
+Truncate user-provided strings at valid UTF-8 boundaries, not raw byte offsets.
+
+## Why
+Telegram Bot API hard-limits callback_data to 64 bytes. Multi-byte UTF-8 strings get silently corrupted if truncated at arbitrary byte boundaries.

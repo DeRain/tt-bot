@@ -1,0 +1,23 @@
+---
+id: tt-bot-quality-gates
+trigger: "when about to commit or create a PR"
+confidence: 1.0
+domain: workflow
+source: local-repo-analysis
+evidence: "CLAUDE.md mandates: implement -> gate-all -> test-integration -> go-review -> verify -> THEN commit"
+---
+
+# Run Full Quality Gate Checklist Before Commit
+
+## Action
+After implementation is complete, run in order:
+1. `make gate-all` (build + lint + unit tests)
+2. `make test-integration` (Docker-based integration + E2E)
+3. Dispatch `go-reviewer` agent for code review
+4. Address any review findings
+5. ONLY THEN: commit and push
+
+Never trust a Sonnet agent's claim that "all tests pass" — independently verify.
+
+## Why
+The quality gate pipeline catches issues at multiple levels. Integration tests catch API contract issues that unit mocks miss. Code review catches style and security issues that tests don't cover.

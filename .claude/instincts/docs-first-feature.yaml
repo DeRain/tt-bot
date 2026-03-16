@@ -1,0 +1,19 @@
+---
+id: tt-bot-docs-first-feature
+trigger: "when starting a new feature or non-trivial change"
+confidence: 0.95
+domain: workflow
+source: local-repo-analysis
+evidence: "12/12 features have full docs/features/<id>/ directories with spec, design, plan, traceability, verification"
+---
+
+# Always Create Feature Docs Before Implementation
+
+## Action
+Create `docs/features/<feature-id>/` with spec.md, design.md, plan.md, traceability.md, and verification.md BEFORE writing any code. Use templates from `docs/features/_templates/`.
+
+## Pattern
+Every feature in this repo (auth, add-torrent, list-torrents, completion-notifications, config, set-commands, downloading-list, uploading-list, status-emojis, torrent-control, torrent-detail-extra, torrent-files, torrent-remove) follows this pattern with zero exceptions.
+
+## Why
+Requirements traceability ensures every code change maps to a REQ-* and TASK-*. Prevents scope creep and enables verification against acceptance criteria.

@@ -1,0 +1,22 @@
+---
+id: tt-bot-interface-first
+trigger: "when adding new qBittorrent or bot functionality"
+confidence: 0.9
+domain: architecture
+source: local-repo-analysis
+evidence: "All external dependencies behind interfaces: qbt.Client (4 changes), bot.Sender (2 changes), poller.Notifier"
+---
+
+# Extend Interfaces Before Implementation
+
+## Action
+When adding a new feature that requires qBittorrent API calls or Telegram interactions:
+1. Add method to `qbt.Client` interface in `internal/qbt/client.go`
+2. Implement in `internal/qbt/http.go`
+3. Wire into bot handler via `internal/bot/callback.go` or `internal/bot/handler.go`
+
+## Pattern
+`qbt/client.go` and `qbt/http.go` always change together (4 co-occurrences). The interface is the contract; mock it for unit tests, test against real service for integration.
+
+## Why
+Interface-driven design enables unit testing with mocks while keeping integration tests against real qBittorrent for API contract verification.

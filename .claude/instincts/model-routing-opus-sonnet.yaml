@@ -1,0 +1,21 @@
+---
+id: tt-bot-model-routing
+trigger: "when editing implementation files (*.go, *.yaml, Dockerfile, Makefile)"
+confidence: 1.0
+domain: workflow
+source: local-repo-analysis
+evidence: "CLAUDE.md enforces Opus=orchestration, Sonnet=implementation, Haiku=gate-checks"
+---
+
+# Dispatch Sonnet Agents for Implementation Code
+
+## Action
+Opus MUST NOT directly edit implementation files. Dispatch Sonnet agents with `model: sonnet` for:
+- All `*.go` files
+- `Dockerfile`, `docker-compose*.yml`, `Makefile`
+- `*.yaml`, `*.yml`, `*.toml`, `*.json` (non-claude config)
+
+Opus may edit: `*.md`, `.claude/` config files, `CLAUDE.md`.
+
+## Why
+Opus costs 5x more than Sonnet for code generation. Sonnet is the best coding model. Opus adds value in orchestration, planning, and review — not line-by-line implementation.
