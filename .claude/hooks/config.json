@@ -1,4 +1,19 @@
 {
+  "permissions": {
+    "_note": "Security permissions are configured in .claude/settings.json"
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "_note": "Security hooks are configured in .claude/settings.json"
+      }
+    ],
+    "Stop": [
+      {
+        "_note": "Stop hooks are configured in .claude/settings.json"
+      }
+    ]
+  },
   "languages": {
     "go": true,
     "shell": true,

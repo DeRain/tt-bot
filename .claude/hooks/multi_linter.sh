@@ -28,13 +28,13 @@ BASENAME=$(basename "$FILE_PATH")
 
 detect_language() {
   case "$EXT" in
-    go)         echo "go" ;;
-    sh|bash)    echo "shell" ;;
+    go) echo "go" ;;
+    sh | bash) echo "shell" ;;
     *)
       case "$BASENAME" in
         Dockerfile*) echo "dockerfile" ;;
-        *.sh)        echo "shell" ;;
-        *)           echo "unknown" ;;
+        *.sh) echo "shell" ;;
+        *) echo "unknown" ;;
       esac
       ;;
   esac
@@ -60,7 +60,7 @@ phase1_format() {
       gofmt -w "$FILE_PATH" 2>/dev/null || true
       ;;
     shell)
-      if command -v shfmt &>/dev/null; then
+      if command -v shfmt >/dev/null; then
         shfmt -w -i 2 -ci "$FILE_PATH" 2>/dev/null || true
       fi
       ;;
@@ -71,7 +71,7 @@ phase1_format() {
 phase2_lint() {
   case "$LANG" in
     go)
-      if command -v golangci-lint &>/dev/null; then
+      if command -v golangci-lint >/dev/null; then
         # Lint the package containing the file, not the file alone
         local pkg_dir
         pkg_dir=$(dirname "$FILE_PATH")
@@ -84,29 +84,29 @@ phase2_lint() {
             [[ "$line" =~ ^[0-9]+\ issues ]] && continue
             [[ "$line" =~ ^\*\  ]] && continue
             VIOLATIONS+=("$line")
-          done <<< "$output"
+          done <<<"$output"
         fi
       fi
       ;;
     shell)
-      if command -v shellcheck &>/dev/null; then
+      if command -v shellcheck >/dev/null; then
         local output
         output=$(shellcheck -f gcc "$FILE_PATH" 2>/dev/null) || true
         if [[ -n "$output" ]]; then
           while IFS= read -r line; do
             VIOLATIONS+=("$line")
-          done <<< "$output"
+          done <<<"$output"
         fi
       fi
       ;;
     dockerfile)
-      if command -v hadolint &>/dev/null; then
+      if command -v hadolint >/dev/null; then
         local output
         output=$(hadolint "$FILE_PATH" 2>/dev/null) || true
         if [[ -n "$output" ]]; then
           while IFS= read -r line; do
             VIOLATIONS+=("$line")
-          done <<< "$output"
+          done <<<"$output"
         fi
       fi
       ;;
@@ -162,7 +162,7 @@ Rules:
 - Do not modify unrelated code
 - Do not disable linter rules"
 
-  if command -v claude &>/dev/null; then
+  if command -v claude >/dev/null; then
     timeout "$timeout" claude -p "$prompt" --model "$model" --max-turns "$max_turns" --no-input 2>/dev/null || true
   else
     return 1

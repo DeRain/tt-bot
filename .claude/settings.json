@@ -1,4 +1,27 @@
 {
+  "permissions": {
+    "allow": [
+      "Read",
+      "Glob",
+      "Grep",
+      "Bash(make *)",
+      "Bash(go *)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git branch*)",
+      "Bash(git add *)",
+      "Bash(git commit *)"
+    ],
+    "deny": [
+      "Bash(ssh *)",
+      "Bash(chmod 777*)",
+      "Bash(> /dev/*)",
+      "Bash(git push --force*)",
+      "Bash(git reset --hard*)",
+      "Bash(git clean -f*)"
+    ]
+  },
   "hooks": {
     "PreToolUse": [
       {
@@ -18,6 +41,16 @@
           {
             "type": "command",
             "command": ".claude/hooks/multi_linter.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/session_end_check.sh"
           }
         ]
       }
