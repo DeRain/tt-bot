@@ -4,17 +4,65 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
+
+// btihV1RE matches a v1 BitTorrent info-hash in a urn:btih:<HASH> xt value.
+// A v1 hash is exactly 40 hexadecimal characters (SHA-1). v2 (64-char SHA-256)
+// is not supported by this bot yet (see docs/features/torrent-control/decisions.md).
+var btihV1RE = regexp.MustCompile(`(?i)^urn:btih:([0-9a-f]{40})$`)
+
+// validateMagnetURI returns a non-nil error if magnet is not a valid magnet URI
+// containing at least one v1 BitTorrent info-hash (urn:btih:<40-hex-char hash>).
+// This pre-validates user input before sending to qBittorrent so that a 409
+// Conflict response from /torrents/add can be unambiguously interpreted as
+// "duplicate torrent" rather than "malformed input".
+func validateMagnetURI(magnet string) error {
+	if !strings.HasPrefix(magnet, "magnet:?") {
+		return errors.New("invalid magnet URI: missing magnet:? scheme")
+	}
+
+	// Parse everything after "magnet:?" as a query string.
+	params, err := url.ParseQuery(magnet[len("magnet:?"):])
+	if err != nil {
+		return fmt.Errorf("invalid magnet URI: unparseable query parameters: %w", err)
+	}
+
+	xtValues, ok := params["xt"]
+	if !ok || len(xtValues) == 0 {
+		return errors.New("invalid magnet URI: missing xt parameter")
+	}
+
+	// At least one xt value must be a valid v1 btih hash.
+	for _, xt := range xtValues {
+		if btihV1RE.MatchString(xt) {
+			return nil
+		}
+	}
+
+	// Distinguish between wrong URN type and wrong hash length/chars.
+	for _, xt := range xtValues {
+		if strings.HasPrefix(strings.ToLower(xt), "urn:btih:") {
+			hash := xt[len("urn:btih:"):]
+			if len(hash) != 40 {
+				return fmt.Errorf("invalid magnet URI: info-hash must be 40 hex characters (got %d)", len(hash))
+			}
+			return errors.New("invalid magnet URI: info-hash contains non-hex characters")
+		}
+	}
+	return errors.New("invalid magnet URI: xt value not a v1 BitTorrent info-hash")
+}
 
 // HTTPClient is a qBittorrent API client that communicates over HTTP.
 // It handles SID cookie-based authentication and transparently re-authenticates
@@ -24,8 +72,9 @@ type HTTPClient struct {
 	username string
 	password string
 
-	mu  sync.Mutex
-	sid string // current session cookie value
+	mu          sync.Mutex
+	sid         string // current session cookie value
+	sessionName string // cookie name: "SID" (pre-v5.2) or "QBT_SID_<port>" (v5.2+)
 
 	httpClient *http.Client
 }
@@ -75,18 +124,36 @@ func (c *HTTPClient) loginLocked(ctx context.Context) error {
 		return fmt.Errorf("qbt login: read body: %w", err)
 	}
 
-	if resp.StatusCode != http.StatusOK || string(body) == "Fails." {
+	// Accept any 2xx status. qBittorrent v5.1+ returns 204 No Content when the
+	// client IP is in the auth-bypass subnet whitelist; in that case no SID
+	// cookie is issued and the client is identified by IP alone.
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("qbt login: authentication failed (status %d, body: %s)", resp.StatusCode, body)
+	}
+	// "Fails." is qBittorrent's explicit failure signal on 200 responses.
+	if resp.StatusCode == http.StatusOK && string(body) == "Fails." {
 		return fmt.Errorf("qbt login: authentication failed (status %d, body: %s)", resp.StatusCode, body)
 	}
 
-	// Extract SID from Set-Cookie header.
+	// Extract the session cookie from Set-Cookie headers. qBittorrent uses:
+	//   - "SID" in pre-v5.2 releases
+	//   - "QBT_SID_<port>" in v5.2+ releases
+	// Accept any cookie whose name is "SID" or starts with "QBT_SID_".
+	// If no matching cookie is found (auth-bypass mode), leave sid as "" —
+	// attachCookie will not add an empty SID header and the server identifies
+	// the client by IP.
 	for _, cookie := range resp.Cookies() {
-		if cookie.Name == "SID" {
+		if cookie.Name == "SID" || strings.HasPrefix(cookie.Name, "QBT_SID_") {
 			c.sid = cookie.Value
+			c.sessionName = cookie.Name
 			return nil
 		}
 	}
-	return fmt.Errorf("qbt login: SID cookie not found in response")
+	// No session cookie — auth-bypass mode or server chose not to set one.
+	// Clear any stale session info and proceed without cookie-based auth.
+	c.sid = ""
+	c.sessionName = ""
+	return nil
 }
 
 // doWithRetry executes the request produced by buildReq, attaching the session
@@ -102,8 +169,9 @@ func (c *HTTPClient) doWithRetry(ctx context.Context, buildReq func() (*http.Req
 
 	c.mu.Lock()
 	sid := c.sid
+	sessionName := c.sessionName
 	c.mu.Unlock()
-	attachCookie(req, sid)
+	attachCookie(req, sessionName, sid)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -120,6 +188,7 @@ func (c *HTTPClient) doWithRetry(ctx context.Context, buildReq func() (*http.Req
 	c.mu.Lock()
 	loginErr := c.loginLocked(ctx)
 	newSID := c.sid
+	newSessionName := c.sessionName
 	c.mu.Unlock()
 
 	if loginErr != nil {
@@ -130,7 +199,7 @@ func (c *HTTPClient) doWithRetry(ctx context.Context, buildReq func() (*http.Req
 	if err != nil {
 		return nil, fmt.Errorf("qbt rebuild request after re-auth: %w", err)
 	}
-	attachCookie(retryReq, newSID)
+	attachCookie(retryReq, newSessionName, newSID)
 
 	retryResp, err := c.httpClient.Do(retryReq)
 	if err != nil {
@@ -153,22 +222,35 @@ func (c *HTTPClient) doWithAuth(req *http.Request) (*http.Response, error) {
 	})
 }
 
-// attachCookie sets the SID session cookie on req, replacing any existing SID.
-func attachCookie(req *http.Request, sid string) {
-	// Remove any existing SID cookies to avoid duplicate/stale values, then add
-	// the current one. http.Request.Header stores cookies under "Cookie".
+// attachCookie sets the session cookie on req, replacing any existing session
+// cookie (either the legacy "SID" or the v5.2+ "QBT_SID_<port>" variant).
+// When sid is empty (auth-bypass mode) no session cookie is added; stale
+// cookies are still stripped so the server sees a clean request.
+// name defaults to "SID" when empty for backwards compatibility.
+func attachCookie(req *http.Request, name, sid string) {
+	if name == "" {
+		name = "SID"
+	}
+	// Remove any existing session cookies (both legacy "SID" and "QBT_SID_*")
+	// to avoid duplicate/stale values. http.Request.Header stores cookies under "Cookie".
 	existing := req.Cookies()
 	req.Header.Del("Cookie")
 	for _, c := range existing {
-		if c.Name != "SID" {
+		if c.Name != "SID" && !strings.HasPrefix(c.Name, "QBT_SID_") {
 			req.AddCookie(c)
 		}
 	}
-	req.AddCookie(&http.Cookie{Name: "SID", Value: sid})
+	if sid != "" {
+		req.AddCookie(&http.Cookie{Name: name, Value: sid})
+	}
 }
 
 // AddMagnet adds a torrent by magnet URI and assigns it to category.
 func (c *HTTPClient) AddMagnet(ctx context.Context, magnet string, category string) error {
+	if err := validateMagnetURI(magnet); err != nil {
+		return fmt.Errorf("qbt add magnet: %w", err)
+	}
+
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
 
@@ -197,6 +279,11 @@ func (c *HTTPClient) AddMagnet(ctx context.Context, magnet string, category stri
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	// HTTP 409 Conflict means the torrent already exists (qBittorrent v5.2+).
+	// Treat as a successful no-op — the torrent is already present.
+	if resp.StatusCode == http.StatusConflict {
+		return nil
+	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("qbt add magnet: unexpected status %d", resp.StatusCode)
 	}
@@ -247,6 +334,11 @@ func (c *HTTPClient) AddTorrentFile(ctx context.Context, filename string, data i
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	// HTTP 409 Conflict means the torrent already exists (qBittorrent v5.2+).
+	// Treat as a successful no-op — the torrent is already present.
+	if resp.StatusCode == http.StatusConflict {
+		return nil
+	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("qbt add torrent file: unexpected status %d", resp.StatusCode)
 	}

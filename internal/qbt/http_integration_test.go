@@ -274,6 +274,100 @@ func TestIntegration_ListFiles(t *testing.T) {
 	}
 }
 
+// TestIntegration_AddTorrentFile verifies that AddTorrentFile uploads a .torrent
+// fixture to the real qBittorrent instance and that a duplicate upload (same
+// torrent submitted twice) is treated as a successful no-op rather than an error.
+// This validates the HTTP 409 Conflict tolerance introduced for qBittorrent v5.2+.
+func TestIntegration_AddTorrentFile(t *testing.T) {
+	// Debian 12.10.0 amd64 netinstall — freely redistributable DFSG content.
+	// Source: testdata/torrents/README.md
+	const (
+		torrentFixture = "../../testdata/torrents/debian-12.10.0-amd64-netinst.iso.torrent"
+		debianHash     = "7d5210a711291d7181d6e074ce5ebd56f3fedd60"
+	)
+
+	c := integrationClient(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := c.Login(ctx); err != nil {
+		t.Fatalf("Login() error = %v", err)
+	}
+
+	// First upload — must succeed.
+	f1, err := os.Open(torrentFixture)
+	if err != nil {
+		t.Fatalf("os.Open(%q) error = %v", torrentFixture, err)
+	}
+	defer f1.Close()
+
+	if err := c.AddTorrentFile(ctx, "debian-12.10.0-amd64-netinst.iso.torrent", f1, ""); err != nil {
+		t.Fatalf("AddTorrentFile() first upload error = %v", err)
+	}
+
+	// Poll up to 5 s for the torrent to appear in the list.
+	var found bool
+	for attempt := 0; attempt < 5; attempt++ {
+		torrents, err := c.ListTorrents(ctx, ListOptions{Filter: FilterAll})
+		if err != nil {
+			t.Fatalf("ListTorrents() error = %v", err)
+		}
+		for _, tor := range torrents {
+			if strings.EqualFold(tor.Hash, debianHash) {
+				found = true
+				break
+			}
+		}
+		if found {
+			break
+		}
+		time.Sleep(1 * time.Second)
+	}
+
+	if !found {
+		t.Fatalf("torrent with hash %q not found in ListTorrents() after upload", debianHash)
+	}
+
+	// Count matching torrents before the second upload.
+	before, err := c.ListTorrents(ctx, ListOptions{Filter: FilterAll})
+	if err != nil {
+		t.Fatalf("ListTorrents() before second upload error = %v", err)
+	}
+	countBefore := 0
+	for _, tor := range before {
+		if strings.EqualFold(tor.Hash, debianHash) {
+			countBefore++
+		}
+	}
+
+	// Second upload of the same file — must be a no-op (no error, no duplicate).
+	f2, err := os.Open(torrentFixture)
+	if err != nil {
+		t.Fatalf("os.Open(%q) for second upload error = %v", torrentFixture, err)
+	}
+	defer f2.Close()
+
+	if err := c.AddTorrentFile(ctx, "debian-12.10.0-amd64-netinst.iso.torrent", f2, ""); err != nil {
+		t.Fatalf("AddTorrentFile() second (duplicate) upload error = %v (want no-op)", err)
+	}
+
+	// Verify torrent count is unchanged after duplicate upload.
+	after, err := c.ListTorrents(ctx, ListOptions{Filter: FilterAll})
+	if err != nil {
+		t.Fatalf("ListTorrents() after second upload error = %v", err)
+	}
+	countAfter := 0
+	for _, tor := range after {
+		if strings.EqualFold(tor.Hash, debianHash) {
+			countAfter++
+		}
+	}
+
+	if countAfter != countBefore {
+		t.Errorf("duplicate AddTorrentFile changed torrent count: before=%d after=%d (want equal)", countBefore, countAfter)
+	}
+}
+
 // TestIntegration_SetFilePriority verifies that SetFilePriority changes a
 // file's priority and that a follow-up ListFiles reflects the change.
 // TEST-8: REQ-4, AC-4.2, AC-4.4.

@@ -75,8 +75,9 @@ type mockQBTClient struct {
 	files         []string
 	torrents      []qbt.Torrent
 	categories    []qbt.Category
-	addMagnetErr  error
-	pausedHashes  []string
+	addMagnetErr      error
+	addTorrentFileErr error
+	pausedHashes      []string
 	resumedHashes []string
 	pauseErr      error
 	resumeErr     error
@@ -112,6 +113,9 @@ func (m *mockQBTClient) AddMagnet(_ context.Context, magnet, _ string) error {
 }
 
 func (m *mockQBTClient) AddTorrentFile(_ context.Context, filename string, _ io.Reader, _ string) error {
+	if m.addTorrentFileErr != nil {
+		return m.addTorrentFileErr
+	}
 	m.files = append(m.files, filename)
 	return nil
 }

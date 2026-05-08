@@ -1086,6 +1086,73 @@ func TestE2E_FilePriorityChange(t *testing.T) {
 	}
 }
 
+// TestE2E_InvalidMagnetSurfacesValidationError verifies the full Telegram →
+// handler → callback → qbt flow when the user submits a malformed magnet link.
+// The magnet URI "magnet:?nothing" contains the "magnet:?" substring that the
+// bot's handleMagnet function detects, but it lacks the required xt parameter
+// and must be rejected by the qbt.AddMagnet validator before reaching qBittorrent.
+// The bot must edit the message with an error and leave the torrent list unchanged.
+func TestE2E_InvalidMagnetSurfacesValidationError(t *testing.T) {
+	const (
+		chatID = int64(1018)
+		userID = int64(1018)
+	)
+
+	ctx := context.Background()
+	qbtClient := getQBTClient(t)
+
+	// Record the number of torrents before the test so we can verify qBittorrent
+	// state is unchanged after the invalid submission.
+	beforeTorrents, err := qbtClient.ListTorrents(ctx, qbt.ListOptions{Filter: qbt.FilterAll})
+	if err != nil {
+		t.Fatalf("ListTorrents (before): %v", err)
+	}
+	countBefore := len(beforeTorrents)
+
+	sender := &mockSender{}
+	auth := NewAuthorizer([]int64{userID})
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+
+	// Step 1: Send the malformed magnet link. The bot must reply with the
+	// category selection keyboard (it detects "magnet:?" without validating yet).
+	magnetUpdate := newTestMessage(chatID, userID, "magnet:?nothing")
+	h.HandleUpdate(ctx, magnetUpdate)
+
+	if !sender.hasText("Select category") {
+		t.Fatalf("expected category keyboard prompt after magnet link, got: %v", sender.sentTexts())
+	}
+
+	// Step 2: Simulate the user pressing any category button ("cat:Movies").
+	sender.sentMessages = nil
+	catCallback := newCallbackUpdate(chatID, "cb-invalid-mag", "cat:Movies")
+	h.HandleUpdate(ctx, catCallback)
+
+	// The bot must edit the message with a "Failed to add torrent" error.
+	if !sender.hasEditText("Failed to add torrent") {
+		t.Fatalf("expected 'Failed to add torrent' in edited message, got edits: %v", sender.editTexts())
+	}
+	if !sender.hasEditText("invalid magnet URI") {
+		t.Fatalf("expected 'invalid magnet URI' in edited message, got edits: %v", sender.editTexts())
+	}
+
+	// The success confirmation must NOT appear.
+	if sender.hasEditText("Torrent added") {
+		t.Errorf("unexpected success confirmation after invalid magnet, edits: %v", sender.editTexts())
+	}
+
+	// Step 3: Give qBittorrent a moment then verify the torrent list is unchanged.
+	time.Sleep(1 * time.Second)
+	afterTorrents, err := qbtClient.ListTorrents(ctx, qbt.ListOptions{Filter: qbt.FilterAll})
+	if err != nil {
+		t.Fatalf("ListTorrents (after): %v", err)
+	}
+	countAfter := len(afterTorrents)
+	if countAfter != countBefore {
+		t.Errorf("qBittorrent torrent count changed from %d to %d after invalid magnet; expected no change",
+			countBefore, countAfter)
+	}
+}
+
 // TestE2E_ActiveCommandShowsDownloading verifies that /active returns a valid
 // response even when no torrents are currently active.
 func TestE2E_ActiveCommandShowsDownloading(t *testing.T) {

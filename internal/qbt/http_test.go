@@ -108,11 +108,110 @@ func TestLogin_Fails403(t *testing.T) {
 	}
 }
 
+// TestLogin_Success204AuthBypass verifies that a 204 No Content response
+// (qBittorrent v5.1+ auth-bypass mode) is treated as a successful login and
+// that no SID is stored (server identifies client by IP).
+func TestLogin_Success204AuthBypass(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/auth/login", func(w http.ResponseWriter, r *http.Request) {
+		// No Set-Cookie header — auth bypass grants access by IP.
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	_, client := newTestServer(t, mux)
+
+	if err := client.Login(context.Background()); err != nil {
+		t.Fatalf("Login() error = %v, want nil for 204 bypass response", err)
+	}
+	if client.sid != "" {
+		t.Errorf("sid = %q, want empty string for auth-bypass mode", client.sid)
+	}
+}
+
+// TestLogin_Success200NoCookie verifies that a 200 OK with body "Ok." but
+// without a Set-Cookie header is treated as a successful login (sid stays "").
+func TestLogin_Success200NoCookie(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/auth/login", func(w http.ResponseWriter, r *http.Request) {
+		// 200 OK with success body but no SID cookie.
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("Ok."))
+	})
+
+	_, client := newTestServer(t, mux)
+
+	if err := client.Login(context.Background()); err != nil {
+		t.Fatalf("Login() error = %v, want nil for 200+Ok. without cookie", err)
+	}
+	if client.sid != "" {
+		t.Errorf("sid = %q, want empty string when no SID cookie set", client.sid)
+	}
+}
+
+// TestLogin_Success204WithQBTCookie verifies that a 204 response with the
+// qBittorrent v5.2+ port-specific cookie (QBT_SID_<port>) is accepted and
+// the cookie value is stored for subsequent requests.
+func TestLogin_Success204WithQBTCookie(t *testing.T) {
+	const wantSID = "newstyle-cookie-value"
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/auth/login", func(w http.ResponseWriter, r *http.Request) {
+		http.SetCookie(w, &http.Cookie{Name: "QBT_SID_8080", Value: wantSID})
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	_, client := newTestServer(t, mux)
+
+	if err := client.Login(context.Background()); err != nil {
+		t.Fatalf("Login() error = %v, want nil for 204 with QBT_SID cookie", err)
+	}
+	if client.sid != wantSID {
+		t.Errorf("sid = %q, want %q", client.sid, wantSID)
+	}
+	if client.sessionName != "QBT_SID_8080" {
+		t.Errorf("sessionName = %q, want %q", client.sessionName, "QBT_SID_8080")
+	}
+}
+
+// TestAuthBypass_NoSIDCookieSent verifies the end-to-end auth-bypass flow:
+// after a 204 login (no SID cookie), follow-up requests do not include a
+// Cookie header containing "SID=".
+func TestAuthBypass_NoSIDCookieSent(t *testing.T) {
+	var capturedCookieHeader string
+
+	mux := http.NewServeMux()
+	// Login returns 204 — bypass mode, no cookie.
+	mux.HandleFunc("/api/v2/auth/login", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	// Capture the Cookie header on the follow-up request.
+	mux.HandleFunc("/api/v2/torrents/info", func(w http.ResponseWriter, r *http.Request) {
+		capturedCookieHeader = r.Header.Get("Cookie")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("[]"))
+	})
+
+	_, client := newTestServer(t, mux)
+
+	if err := client.Login(context.Background()); err != nil {
+		t.Fatalf("Login() error = %v", err)
+	}
+
+	_, err := client.ListTorrents(context.Background(), ListOptions{})
+	if err != nil {
+		t.Fatalf("ListTorrents() error = %v", err)
+	}
+
+	// In bypass mode no SID cookie should appear in the request.
+	if strings.Contains(capturedCookieHeader, "SID=") {
+		t.Errorf("Cookie header = %q, must not contain SID= in auth-bypass mode", capturedCookieHeader)
+	}
+}
+
 // --- AddMagnet tests --------------------------------------------------------
 
 func TestAddMagnet_SendsCorrectForm(t *testing.T) {
 	const (
-		wantMagnet   = "magnet:?xt=urn:btih:abc"
+		wantMagnet   = "magnet:?xt=urn:btih:3b245504cf5f11bbdbe1201cea6a6bf45aee1bc0"
 		wantCategory = "movies"
 		sid          = "sid1"
 	)
@@ -156,7 +255,7 @@ func TestAddMagnet_NoCategory(t *testing.T) {
 	_, client := newTestServer(t, mux)
 	_ = client.Login(context.Background())
 
-	if err := client.AddMagnet(context.Background(), "magnet:?xt=urn:btih:xyz", ""); err != nil {
+	if err := client.AddMagnet(context.Background(), "magnet:?xt=urn:btih:3b245504cf5f11bbdbe1201cea6a6bf45aee1bc0", ""); err != nil {
 		t.Fatalf("AddMagnet() error = %v", err)
 	}
 	if _, ok := gotFields["category"]; ok {
@@ -197,6 +296,65 @@ func TestAddTorrentFile_SendsFileData(t *testing.T) {
 	}
 	if gotFields["category"] != category {
 		t.Errorf("category = %q, want %q", gotFields["category"], category)
+	}
+}
+
+// TestAddMagnet_DuplicateReturns409 verifies that a 409 Conflict response
+// (qBittorrent v5.2+ duplicate-torrent signal) is treated as a successful no-op.
+func TestAddMagnet_DuplicateReturns409(t *testing.T) {
+	const sid = "sid-dup-mag"
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/auth/login", loginHandler(sid))
+	mux.HandleFunc("/api/v2/torrents/add", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+	})
+
+	_, client := newTestServer(t, mux)
+	_ = client.Login(context.Background())
+
+	if err := client.AddMagnet(context.Background(), "magnet:?xt=urn:btih:3b245504cf5f11bbdbe1201cea6a6bf45aee1bc0", "movies"); err != nil {
+		t.Fatalf("AddMagnet() error = %v, want nil for 409 duplicate", err)
+	}
+}
+
+// TestAddTorrentFile_DuplicateReturns409 verifies that a 409 Conflict response
+// (qBittorrent v5.2+ duplicate-torrent signal) is treated as a successful no-op.
+func TestAddTorrentFile_DuplicateReturns409(t *testing.T) {
+	const sid = "sid-dup-file"
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/auth/login", loginHandler(sid))
+	mux.HandleFunc("/api/v2/torrents/add", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+	})
+
+	_, client := newTestServer(t, mux)
+	_ = client.Login(context.Background())
+
+	err := client.AddTorrentFile(context.Background(), "dup.torrent", strings.NewReader("fake"), "tv")
+	if err != nil {
+		t.Fatalf("AddTorrentFile() error = %v, want nil for 409 duplicate", err)
+	}
+}
+
+// TestAddMagnet_500StillFails is a regression guard that ensures AddMagnet
+// still returns an error for server-side failures (500 Internal Server Error).
+func TestAddMagnet_500StillFails(t *testing.T) {
+	const sid = "sid-mag-500"
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/auth/login", loginHandler(sid))
+	mux.HandleFunc("/api/v2/torrents/add", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+
+	_, client := newTestServer(t, mux)
+	_ = client.Login(context.Background())
+
+	err := client.AddMagnet(context.Background(), "magnet:?xt=urn:btih:3b245504cf5f11bbdbe1201cea6a6bf45aee1bc0", "")
+	if err == nil {
+		t.Fatal("AddMagnet() error = nil, want error for 500 response")
 	}
 }
 
@@ -705,5 +863,106 @@ func TestSetFilePriority_ErrorOnNon200(t *testing.T) {
 	err := client.SetFilePriority(context.Background(), "hash", []int{0}, FilePrioritySkip)
 	if err == nil {
 		t.Fatal("expected error for non-200 response, got nil")
+	}
+}
+
+// --- validateMagnetURI tests ------------------------------------------------
+
+// TestValidateMagnetURI exercises the client-side magnet URI validator.
+func TestValidateMagnetURI(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		wantErr bool
+	}{
+		{
+			name:    "valid basic",
+			input:   "magnet:?xt=urn:btih:3b245504cf5f11bbdbe1201cea6a6bf45aee1bc0",
+			wantErr: false,
+		},
+		{
+			name:    "valid with extra params",
+			input:   "magnet:?xt=urn:btih:3b245504cf5f11bbdbe1201cea6a6bf45aee1bc0&dn=foo&tr=udp://t/",
+			wantErr: false,
+		},
+		{
+			name:    "valid uppercase hash",
+			input:   "magnet:?xt=urn:btih:3B245504CF5F11BBDBE1201CEA6A6BF45AEE1BC0",
+			wantErr: false,
+		},
+		{
+			name:    "invalid empty string",
+			input:   "",
+			wantErr: true,
+		},
+		{
+			name:    "invalid not a magnet",
+			input:   "not-a-magnet",
+			wantErr: true,
+		},
+		{
+			name:    "invalid http scheme",
+			input:   "http://example.com/",
+			wantErr: true,
+		},
+		{
+			name:    "invalid missing xt",
+			input:   "magnet:?dn=foo",
+			wantErr: true,
+		},
+		{
+			name:    "invalid wrong urn type",
+			input:   "magnet:?xt=urn:sha1:abc",
+			wantErr: true,
+		},
+		{
+			name:    "invalid hash too short (39 chars)",
+			input:   "magnet:?xt=urn:btih:3b245504cf5f11bbdbe1201cea6a6bf45aee1bc",
+			wantErr: true,
+		},
+		{
+			name:    "invalid hash too long v2 (64 chars)",
+			input:   "magnet:?xt=urn:btih:3b245504cf5f11bbdbe1201cea6a6bf45aee1bc03b245504cf5f11bbdbe12012",
+			wantErr: true,
+		},
+		{
+			name:    "invalid non-hex chars in hash",
+			input:   "magnet:?xt=urn:btih:gggggggggggggggggggggggggggggggggggggggg",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateMagnetURI(tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateMagnetURI(%q) error = %v, wantErr = %v", tt.input, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestAddMagnet_RejectsInvalidInput verifies that AddMagnet returns an error
+// for an invalid magnet URI and makes NO HTTP request to qBittorrent.
+func TestAddMagnet_RejectsInvalidInput(t *testing.T) {
+	handlerCalled := 0
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/auth/login", loginHandler("sid-reject"))
+	mux.HandleFunc("/api/v2/torrents/add", func(w http.ResponseWriter, r *http.Request) {
+		handlerCalled++
+		t.Errorf("HTTP handler should not have been called for invalid magnet input")
+		w.WriteHeader(http.StatusOK)
+	})
+
+	_, client := newTestServer(t, mux)
+	_ = client.Login(context.Background())
+
+	err := client.AddMagnet(context.Background(), "not-a-magnet", "movies")
+	if err == nil {
+		t.Fatal("AddMagnet() error = nil, want error for invalid magnet URI")
+	}
+	if handlerCalled != 0 {
+		t.Errorf("HTTP handler called %d time(s), want 0", handlerCalled)
 	}
 }

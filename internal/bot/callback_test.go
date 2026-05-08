@@ -2,6 +2,7 @@ package bot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -1430,5 +1431,85 @@ func TestAwaitStateChange_TorrentDisappears(t *testing.T) {
 	_, changed := h.awaitStateChange(context.Background(), hash, "downloading")
 	if changed {
 		t.Fatal("expected no change when torrent is not found")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// AddMagnet error handling (coverage gap for callback.go:217-223)
+// ---------------------------------------------------------------------------
+
+// TestCallback_CategoryWithPendingMagnet_AddMagnetError_ShowsError verifies
+// that when AddMagnet returns an error the bot edits the message with
+// "Failed to add torrent: <err>" and does NOT show the success confirmation.
+func TestCallback_CategoryWithPendingMagnet_AddMagnetError_ShowsError(t *testing.T) {
+	addErr := errors.New("qbt add magnet: invalid magnet URI: missing xt parameter")
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{
+		addMagnetErr: addErr,
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+
+	magnet := "magnet:?nothing"
+	h.storePending(1, &PendingTorrent{MagnetLink: magnet, CreatedAt: time.Now()})
+
+	update := newCallbackUpdate(1, "cb-err-mag", "cat:Movies")
+	h.HandleUpdate(context.Background(), update)
+
+	// The mock returns the error immediately — no magnet should be appended.
+	if len(qbtClient.magnets) != 0 {
+		t.Errorf("expected 0 magnets added on error, got %d", len(qbtClient.magnets))
+	}
+
+	// The edited message must contain "Failed to add torrent" and the error text.
+	if !sender.hasEditText("Failed to add torrent") {
+		t.Fatalf("expected 'Failed to add torrent' in edited message, got edits: %v", sender.editTexts())
+	}
+	if !sender.hasEditText("invalid magnet URI") {
+		t.Fatalf("expected error detail in edited message, got edits: %v", sender.editTexts())
+	}
+
+	// The success confirmation ("Torrent added to Movies!") must NOT appear.
+	if sender.hasEditText("Movies") {
+		t.Errorf("unexpected success confirmation in edited message on error path, edits: %v", sender.editTexts())
+	}
+}
+
+// TestCallback_CategoryWithPendingMagnet_AddTorrentFileError_ShowsError
+// verifies the same error-surface behaviour for the file-upload path.
+func TestCallback_CategoryWithPendingMagnet_AddTorrentFileError_ShowsError(t *testing.T) {
+	addErr := errors.New("qbt add torrent file: server returned 500")
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{
+		addTorrentFileErr: addErr,
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+
+	h.storePending(1, &PendingTorrent{
+		FileName:  "test.torrent",
+		FileData:  []byte("fake torrent data"),
+		CreatedAt: time.Now(),
+	})
+
+	update := newCallbackUpdate(1, "cb-err-file", "cat:Movies")
+	h.HandleUpdate(context.Background(), update)
+
+	// No file should have been recorded on error.
+	if len(qbtClient.files) != 0 {
+		t.Errorf("expected 0 files added on error, got %d", len(qbtClient.files))
+	}
+
+	// The edited message must contain "Failed to add torrent" and the error text.
+	if !sender.hasEditText("Failed to add torrent") {
+		t.Fatalf("expected 'Failed to add torrent' in edited message, got edits: %v", sender.editTexts())
+	}
+	if !sender.hasEditText("server returned 500") {
+		t.Fatalf("expected error detail in edited message, got edits: %v", sender.editTexts())
+	}
+
+	// The success confirmation must NOT appear.
+	if sender.hasEditText("Movies") {
+		t.Errorf("unexpected success confirmation in edited message on error path, edits: %v", sender.editTexts())
 	}
 }
