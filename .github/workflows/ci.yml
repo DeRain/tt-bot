@@ -45,6 +45,7 @@ jobs:
 
       - name: Start qBittorrent
         run: |
+          sudo chown -R 1000:1000 testdata/qbt-config
           docker compose -f docker-compose.test.yml up -d qbittorrent
 
       - name: Wait for qBittorrent
@@ -61,14 +62,23 @@ jobs:
           echo "qBittorrent failed to start"
           exit 1
 
+      - name: Configure qBittorrent password
+        run: |
+          PASS=$(docker logs tt-bot-qbittorrent-1 2>&1 | grep -oP 'The WebUI administrator password was not set[^"]*temporary password: \K\S+' | head -1 || echo "")
+          if [ -z "$PASS" ]; then
+            PASS="adminadmin"
+          fi
+          echo "QBT_PASS=$PASS" >> "$GITHUB_ENV"
+
       - name: Run Integration + E2E Tests
         env:
           QBITTORRENT_URL: http://localhost:18080
           QBITTORRENT_USERNAME: admin
-          QBITTORRENT_PASSWORD: adminadmin
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_ALLOWED_USERS: ${{ secrets.TELEGRAM_ALLOWED_USERS }}
-        run: go test ./... -tags=integration -run "Integration|E2E" -v -count=1
+        run: |
+          export QBITTORRENT_PASSWORD="${QBT_PASS:-adminadmin}"
+          go test ./... -tags=integration -run "Integration|E2E" -v -count=1
 
       - name: Stop qBittorrent
         if: always()
