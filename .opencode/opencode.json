@@ -1,0 +1,11 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "permission": {
+    "read": {
+      "/Users/kiryl/Projects/tt-bot/.opencode/get-shit-done/*": "allow"
+    },
+    "external_directory": {
+      "/Users/kiryl/Projects/tt-bot/.opencode/get-shit-done/*": "allow"
+    }
+  }
+}
