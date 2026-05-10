@@ -31,61 +31,6 @@ Opus MUST NOT write implementation code directly. All implementation file edits 
 
 This repository also supports OpenCode (DeepSeek models). See @AGENTS.md for the unified model routing table covering both tools.
 
-## RAG and Search Tools
-
-Use **claude-context** MCP server (`@zilliz/claude-context-mcp`) as the semantic search tool for the codebase. Fall back to built-in tools (Grep, Glob, Read) when claude-context returns insufficient results.
-
-### claude-context Availability
-
-- **On session start**, if claude-context is unavailable, attempt to reconnect via `/mcp` before proceeding.
-- **During workload**, if a claude-context call fails with a connection error, reconnect via `/mcp` and retry once. If reconnection fails, fall back to built-in tools (Grep, Glob, Read) and notify the user.
-- **Dependencies**: Requires Milvus (`docker compose up milvus-standalone`) and Ollama running locally.
-
-### claude-context Tools
-
-| Tool | Purpose |
-|------|---------|
-| `search_code` | Semantic search using natural language queries. Requires absolute path. |
-| `index_codebase` | Index a codebase directory for semantic search. |
-| `get_indexing_status` | Check indexing progress for a codebase directory. |
-| `clear_index` | Clear the search index for a codebase directory. |
-
-### Tool Selection Guide
-
-| Task | Primary Tool | Fallback |
-|------|-------------|----------|
-| Find code related to a concept | `search_code` | Grep |
-| Find a symbol definition | `search_code` | Grep |
-| Find all references to a symbol | `search_code` | Grep |
-| Explore a module's structure | `search_code` | Glob + Read |
-| Find files by name/pattern | Glob | — |
-| Exact text/regex search | Grep | `search_code` |
-| Read full file content | Read | — |
-
-### Fallback Chain
-
-1. **Always try `search_code` first** for code discovery.
-2. **Fall back to Grep** for exact text/regex matches or when `search_code` returns insufficient results.
-3. **Fall back to Glob** for file name/pattern discovery.
-4. **Fall back to Read** for full file content when needed.
-
-### Token-Efficiency Rules
-
-1. Use `search_code` as the primary discovery tool.
-2. Use Grep/Glob when you need exact text matches or file patterns.
-3. Read full file bodies only when search results are insufficient.
-4. Avoid repeated scans of unchanged areas.
-5. Batch parallelizable reads/searches — do not serialize independent commands.
-6. If a command fails, diagnose once, pivot strategy, continue — no blind retry loops.
-
-### Anti-Patterns
-
-1. Reading entire files without searching first.
-2. Running independent commands sequentially when they can be parallelized.
-3. Repeating failed commands without changing inputs or approach.
-4. Skipping `search_code` and jumping straight to Grep/Glob/Read.
-5. Never trust a single empty result — verify with Grep before concluding something has no references.
-
 ## Pre-Commit Quality Gate
 
 **See @docs/gates.md for full gate definitions and the Iterative Harness Loop Protocol.**
@@ -106,3 +51,47 @@ Every Sonnet implementation agent prompt MUST include the gate requirements from
 ## Shared Project Instructions
 
 @AGENTS.md contains project-wide instructions shared between Claude Code and OpenCode: architecture, build commands, testing guidelines, docs-first workflow, commit conventions, and the unified model routing table.
+
+<!-- gitnexus:start -->
+# GitNexus — Code Intelligence
+
+This project is indexed by GitNexus as **tt-bot** (2354 symbols, 5126 relationships, 92 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+
+> If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
+
+## Always Do
+
+- **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `gitnexus_impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
+- **MUST run `gitnexus_detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows.
+- **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
+- When exploring unfamiliar code, use `gitnexus_query({query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
+- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `gitnexus_context({name: "symbolName"})`.
+
+## Never Do
+
+- NEVER edit a function, class, or method without first running `gitnexus_impact` on it.
+- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
+- NEVER rename symbols with find-and-replace — use `gitnexus_rename` which understands the call graph.
+- NEVER commit changes without running `gitnexus_detect_changes()` to check affected scope.
+
+## Resources
+
+| Resource | Use for |
+|----------|---------|
+| `gitnexus://repo/tt-bot/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/tt-bot/clusters` | All functional areas |
+| `gitnexus://repo/tt-bot/processes` | All execution flows |
+| `gitnexus://repo/tt-bot/process/{name}` | Step-by-step execution trace |
+
+## CLI
+
+| Task | Read this skill file |
+|------|---------------------|
+| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
+| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
+| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
+| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
+| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
+| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
+
+<!-- gitnexus:end -->
