@@ -75,7 +75,7 @@ When executing this plan via an agent harness loop:
 1. Execute tasks in dependency order
 2. After each TASK-*, run its verification target
 3. If verification fails: fix, re-verify, max 3 retries
-4. After all tasks: run `make gate-all` as the implementation gate
+4. After all tasks: run `make gate-all` (includes `make arch-check`) as the implementation gate
 5. Update traceability.md with implementation evidence
 6. Run verification.md checks
 

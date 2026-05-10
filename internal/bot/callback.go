@@ -639,9 +639,7 @@ func (h *Handler) renderFilesPage(
 	ctx context.Context,
 	hash string,
 	torrentName string,
-	filePage int,
-	filterChar string,
-	listPage int,
+	fps formatter.FilesPageState,
 ) (string, formatter.Keyboard, error) {
 	files, err := h.qbt.ListFiles(ctx, hash)
 	if err != nil {
@@ -649,14 +647,14 @@ func (h *Handler) renderFilesPage(
 	}
 
 	totalFilePages := formatter.TotalPages(len(files), formatter.FilesPerPage)
-	if filePage < 1 {
-		filePage = 1
+	if fps.FilePage < 1 {
+		fps.FilePage = 1
 	}
-	if filePage > totalFilePages {
-		filePage = totalFilePages
+	if fps.FilePage > totalFilePages {
+		fps.FilePage = totalFilePages
 	}
 
-	offset := (filePage - 1) * formatter.FilesPerPage
+	offset := (fps.FilePage - 1) * formatter.FilesPerPage
 	end := offset + formatter.FilesPerPage
 	if end > len(files) {
 		end = len(files)
@@ -666,8 +664,8 @@ func (h *Handler) renderFilesPage(
 		pageFiles = files[offset:end]
 	}
 
-	text := formatter.FormatFileList(torrentName, pageFiles, filePage, totalFilePages)
-	kb := formatter.FileListKeyboard(pageFiles, hash, offset, filePage, totalFilePages, filterChar, listPage)
+	text := formatter.FormatFileList(torrentName, pageFiles, fps.FilePage, totalFilePages)
+	kb := formatter.FileListKeyboard(pageFiles, hash, offset, totalFilePages, fps)
 	return text, kb, nil
 }
 
@@ -694,7 +692,7 @@ func (h *Handler) handleFilesPageCallback(ctx context.Context, cq *tgbotapi.Call
 		}
 	}
 
-	text, kb, err := h.renderFilesPage(ctx, hash, torrentName, 1, filterChar, listPage)
+	text, kb, err := h.renderFilesPage(ctx, hash, torrentName, formatter.FilesPageState{FilePage: 1, FilterChar: filterChar, ListPage: listPage})
 	if err != nil {
 		h.answerCallback(cq.ID, "Failed to load files.")
 		return
@@ -728,7 +726,7 @@ func (h *Handler) handleFilesPageNavCallback(ctx context.Context, cq *tgbotapi.C
 		}
 	}
 
-	text, kb, err := h.renderFilesPage(ctx, hash, torrentName, filePage, filterChar, listPage)
+	text, kb, err := h.renderFilesPage(ctx, hash, torrentName, formatter.FilesPageState{FilePage: filePage, FilterChar: filterChar, ListPage: listPage})
 	if err != nil {
 		h.answerCallback(cq.ID, "Failed to load files.")
 		return
@@ -793,7 +791,8 @@ func (h *Handler) handleFileSelectCallback(ctx context.Context, cq *tgbotapi.Cal
 		}
 	}
 
-	kb := toTGKeyboard(formatter.PriorityKeyboard(hash, fileIndex, currentPriority, filePage, filterChar, listPage))
+	fps := formatter.FilesPageState{FilePage: filePage, FilterChar: filterChar, ListPage: listPage}
+	kb := toTGKeyboard(formatter.PriorityKeyboard(hash, fileIndex, currentPriority, fps))
 	h.answerCallback(cq.ID, "")
 	h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, "Select priority:", &kb)
 }
@@ -829,7 +828,7 @@ func (h *Handler) handleFilePriorityCallback(ctx context.Context, cq *tgbotapi.C
 		}
 	}
 
-	text, kb, renderErr := h.renderFilesPage(ctx, hash, torrentName, filePage, filterChar, listPage)
+	text, kb, renderErr := h.renderFilesPage(ctx, hash, torrentName, formatter.FilesPageState{FilePage: filePage, FilterChar: filterChar, ListPage: listPage})
 	if renderErr != nil {
 		h.answerCallback(cq.ID, "Priority updated.")
 		return

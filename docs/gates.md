@@ -81,7 +81,8 @@ test "$tasks" -eq "$verifications" || echo "FAIL: $tasks tasks but $verification
 **Triggered after**: code changes are complete.
 
 **Pass criteria:**
-- [ ] `make gate-all` passes (build + lint + unit tests)
+- [ ] `make gate-all` passes (build + lint + unit tests + arch-check)
+- [ ] `make arch-check` passes (architecture dependency rules)
 - [ ] `make test-integration` passes (integration + E2E tests against real services)
 - [ ] Changed files map to TASK-* and REQ-* in plan
 - [ ] No untraced code changes exist
@@ -90,6 +91,7 @@ test "$tasks" -eq "$verifications" || echo "FAIL: $tasks tasks but $verification
 
 **Harness commands:**
 ```bash
+make arch-check
 make gate-all
 make test-integration
 # Verify traceability is updated

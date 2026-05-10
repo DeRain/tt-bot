@@ -969,7 +969,7 @@ func TestFormatFileList_MessageUnderLimit(t *testing.T) {
 func TestFileListKeyboard_FileButtons(t *testing.T) {
 	hash := strings.Repeat("a", 40)
 	files := makeFiles(3)
-	kb := formatter.FileListKeyboard(files, hash, 0, 1, 1, "a", 1)
+	kb := formatter.FileListKeyboard(files, hash, 0, 1, formatter.FilesPageState{FilePage: 1, FilterChar: "a", ListPage: 1})
 
 	// 3 file buttons + 1 back button (no pagination for single page).
 	if len(kb) != 4 {
@@ -991,7 +991,7 @@ func TestFileListKeyboard_PaginationButtons_FirstPage(t *testing.T) {
 	hash := strings.Repeat("b", 40)
 	files := makeFiles(5)
 	// 2 total pages → pagination row present.
-	kb := formatter.FileListKeyboard(files, hash, 0, 1, 2, "a", 1)
+	kb := formatter.FileListKeyboard(files, hash, 0, 2, formatter.FilesPageState{FilePage: 1, FilterChar: "a", ListPage: 1})
 
 	// Find pagination row (should have Next but no Prev).
 	found := false
@@ -1013,7 +1013,7 @@ func TestFileListKeyboard_PaginationButtons_FirstPage(t *testing.T) {
 func TestFileListKeyboard_PaginationButtons_MiddlePage(t *testing.T) {
 	hash := strings.Repeat("c", 40)
 	files := makeFiles(5)
-	kb := formatter.FileListKeyboard(files, hash, 5, 2, 3, "a", 1)
+	kb := formatter.FileListKeyboard(files, hash, 5, 3, formatter.FilesPageState{FilePage: 2, FilterChar: "a", ListPage: 1})
 
 	hasPrev, hasNext := false, false
 	for _, row := range kb {
@@ -1039,7 +1039,7 @@ func TestFileListKeyboard_PaginationButtons_MiddlePage(t *testing.T) {
 func TestFileListKeyboard_NoPageButtons_SinglePage(t *testing.T) {
 	hash := strings.Repeat("d", 40)
 	files := makeFiles(3)
-	kb := formatter.FileListKeyboard(files, hash, 0, 1, 1, "a", 1)
+	kb := formatter.FileListKeyboard(files, hash, 0, 1, formatter.FilesPageState{FilePage: 1, FilterChar: "a", ListPage: 1})
 
 	for _, row := range kb {
 		for _, btn := range row {
@@ -1053,7 +1053,7 @@ func TestFileListKeyboard_NoPageButtons_SinglePage(t *testing.T) {
 func TestFileListKeyboard_BackButton(t *testing.T) {
 	hash := strings.Repeat("e", 40)
 	files := makeFiles(2)
-	kb := formatter.FileListKeyboard(files, hash, 0, 1, 1, "a", 1)
+	kb := formatter.FileListKeyboard(files, hash, 0, 1, formatter.FilesPageState{FilePage: 1, FilterChar: "a", ListPage: 1})
 
 	lastRow := kb[len(kb)-1]
 	if !strings.HasPrefix(lastRow[0].CallbackData, "bk:fl:") {
@@ -1067,7 +1067,7 @@ func TestFileListKeyboard_BackButton(t *testing.T) {
 func TestFileListKeyboard_AllCallbacksUnderLimit(t *testing.T) {
 	hash := strings.Repeat("f", 40)
 	files := makeFiles(formatter.FilesPerPage)
-	kb := formatter.FileListKeyboard(files, hash, 0, 1, 999, "a", 999)
+	kb := formatter.FileListKeyboard(files, hash, 0, 999, formatter.FilesPageState{FilePage: 1, FilterChar: "a", ListPage: 999})
 
 	for _, row := range kb {
 		for _, btn := range row {
@@ -1083,7 +1083,7 @@ func TestFileListKeyboard_AllCallbacksUnderLimit(t *testing.T) {
 
 func TestPriorityKeyboard_FourPriorityOptions(t *testing.T) {
 	hash := strings.Repeat("a", 40)
-	kb := formatter.PriorityKeyboard(hash, 0, qbt.FilePriorityNormal, 1, "a", 1)
+	kb := formatter.PriorityKeyboard(hash, 0, qbt.FilePriorityNormal, formatter.FilesPageState{FilePage: 1, FilterChar: "a", ListPage: 1})
 
 	// 4 priority buttons + 1 back button.
 	if len(kb) != 5 {
@@ -1108,7 +1108,7 @@ func TestPriorityKeyboard_FourPriorityOptions(t *testing.T) {
 
 func TestPriorityKeyboard_CurrentMarkedWithCheckmark(t *testing.T) {
 	hash := strings.Repeat("a", 40)
-	kb := formatter.PriorityKeyboard(hash, 0, qbt.FilePriorityHigh, 1, "a", 1)
+	kb := formatter.PriorityKeyboard(hash, 0, qbt.FilePriorityHigh, formatter.FilesPageState{FilePage: 1, FilterChar: "a", ListPage: 1})
 
 	checkedCount := 0
 	for _, row := range kb[:4] {
@@ -1126,7 +1126,7 @@ func TestPriorityKeyboard_CurrentMarkedWithCheckmark(t *testing.T) {
 
 func TestPriorityKeyboard_BackButtonIsPgFL(t *testing.T) {
 	hash := strings.Repeat("a", 40)
-	kb := formatter.PriorityKeyboard(hash, 3, qbt.FilePrioritySkip, 2, "d", 4)
+	kb := formatter.PriorityKeyboard(hash, 3, qbt.FilePrioritySkip, formatter.FilesPageState{FilePage: 2, FilterChar: "d", ListPage: 4})
 
 	backBtn := kb[len(kb)-1][0]
 	if !strings.HasPrefix(backBtn.CallbackData, "pg:fl:") {
@@ -1139,7 +1139,7 @@ func TestPriorityKeyboard_BackButtonIsPgFL(t *testing.T) {
 
 func TestPriorityKeyboard_AllCallbacksUnderLimit(t *testing.T) {
 	hash := strings.Repeat("f", 40)
-	kb := formatter.PriorityKeyboard(hash, 99999, qbt.FilePriorityMaximum, 999, "a", 999)
+	kb := formatter.PriorityKeyboard(hash, 99999, qbt.FilePriorityMaximum, formatter.FilesPageState{FilePage: 999, FilterChar: "a", ListPage: 999})
 
 	for _, row := range kb {
 		for _, btn := range row {

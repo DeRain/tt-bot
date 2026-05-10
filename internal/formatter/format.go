@@ -416,13 +416,20 @@ func FormatFileList(torrentName string, files []qbt.TorrentFile, page, totalPage
 //
 // fileIndexOffset is the zero-based index of the first file in the current page
 // relative to the full file list (i.e. (filePage-1)*FilesPerPage).
+// FilesPageState holds pagination and navigation state for a file list page.
+// Used to reduce parameter counts in keyboard-building functions.
+type FilesPageState struct {
+	FilePage   int
+	FilterChar string
+	ListPage   int
+}
+
 func FileListKeyboard(
 	files []qbt.TorrentFile,
 	hash string,
 	fileIndexOffset int,
-	filePage, totalFilePages int,
-	filterChar string,
-	listPage int,
+	totalFilePages int,
+	fps FilesPageState,
 ) Keyboard {
 	kb := make(Keyboard, 0, len(files)+3)
 
@@ -431,28 +438,28 @@ func FileListKeyboard(
 		name := truncateFileName(f.Name)
 		label := fmt.Sprintf("%d. %s [%s]", fileIdx+1, name, PriorityLabel(f.Priority))
 		// fs:<hash>:<fileIndex>:<filePage>:<filterChar>:<listPage>
-		data := fmt.Sprintf("fs:%s:%d:%d:%s:%d", hash, fileIdx, filePage, filterChar, listPage)
+		data := fmt.Sprintf("fs:%s:%d:%d:%s:%d", hash, fileIdx, fps.FilePage, fps.FilterChar, fps.ListPage)
 		kb = append(kb, ButtonRow{Button{Text: label, CallbackData: data}})
 	}
 
 	// Pagination row (only when multiple pages exist).
 	if totalFilePages > 1 {
 		var pagRow ButtonRow
-		if filePage > 1 {
+		if fps.FilePage > 1 {
 			// pg:fl:<hash>:<filePage>:<filterChar>:<listPage>
 			pagRow = append(pagRow, Button{
 				Text:         "<< Prev",
-				CallbackData: fmt.Sprintf("pg:fl:%s:%d:%s:%d", hash, filePage-1, filterChar, listPage),
+				CallbackData: fmt.Sprintf("pg:fl:%s:%d:%s:%d", hash, fps.FilePage-1, fps.FilterChar, fps.ListPage),
 			})
 		}
 		pagRow = append(pagRow, Button{
-			Text:         fmt.Sprintf("Page %d/%d", filePage, totalFilePages),
+			Text:         fmt.Sprintf("Page %d/%d", fps.FilePage, totalFilePages),
 			CallbackData: "noop",
 		})
-		if filePage < totalFilePages {
+		if fps.FilePage < totalFilePages {
 			pagRow = append(pagRow, Button{
 				Text:         "Next >>",
-				CallbackData: fmt.Sprintf("pg:fl:%s:%d:%s:%d", hash, filePage+1, filterChar, listPage),
+				CallbackData: fmt.Sprintf("pg:fl:%s:%d:%s:%d", hash, fps.FilePage+1, fps.FilterChar, fps.ListPage),
 			})
 		}
 		kb = append(kb, pagRow)
@@ -461,7 +468,7 @@ func FileListKeyboard(
 	// Back button: bk:fl:<filterChar>:<listPage>:<hash>
 	kb = append(kb, ButtonRow{Button{
 		Text:         "⬅️ Back",
-		CallbackData: fmt.Sprintf("bk:fl:%s:%d:%s", filterChar, listPage, hash),
+		CallbackData: fmt.Sprintf("bk:fl:%s:%d:%s", fps.FilterChar, fps.ListPage, hash),
 	}})
 
 	return kb
@@ -475,9 +482,7 @@ func PriorityKeyboard(
 	hash string,
 	fileIndex int,
 	currentPriority qbt.FilePriority,
-	filePage int,
-	filterChar string,
-	listPage int,
+	fps FilesPageState,
 ) Keyboard {
 	priorities := []qbt.FilePriority{
 		qbt.FilePrioritySkip,
@@ -494,14 +499,14 @@ func PriorityKeyboard(
 			label = "✓ " + label
 		}
 		// fp:<hash>:<fileIndex>:<priority>:<filePage>:<filterChar>:<listPage>
-		data := fmt.Sprintf("fp:%s:%d:%d:%d:%s:%d", hash, fileIndex, int(p), filePage, filterChar, listPage)
+		data := fmt.Sprintf("fp:%s:%d:%d:%d:%s:%d", hash, fileIndex, int(p), fps.FilePage, fps.FilterChar, fps.ListPage)
 		kb = append(kb, ButtonRow{Button{Text: label, CallbackData: data}})
 	}
 
 	// Back: return to the file list page (pg:fl: reuses the file list render).
 	kb = append(kb, ButtonRow{Button{
 		Text:         "⬅️ Back to files",
-		CallbackData: fmt.Sprintf("pg:fl:%s:%d:%s:%d", hash, filePage, filterChar, listPage),
+		CallbackData: fmt.Sprintf("pg:fl:%s:%d:%s:%d", hash, fps.FilePage, fps.FilterChar, fps.ListPage),
 	}})
 
 	return kb

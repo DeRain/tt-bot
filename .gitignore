@@ -21,6 +21,10 @@ coverage.out
 
 # Docker volumes
 qbt-config/
+!testdata/qbt-config/qBittorrent.conf
+!testdata/qbt-config/qBittorrent-data.conf
+!testdata/qbt-config/categories.json
+!testdata/qbt-config/watched_folders.json
 qbt-downloads/
 
 .mcp.json

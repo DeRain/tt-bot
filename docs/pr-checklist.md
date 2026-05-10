@@ -21,6 +21,7 @@ Every PR in this repository MUST include the following traceability information.
 - [ ] Unit tests pass (`make test`)
 - [ ] Lint clean (`make lint`)
 - [ ] Build passes (`make build`)
+- [ ] Architecture rules pass (`make arch-check`)
 - [ ] Integration tests pass (if applicable: `make test-integration`)
 - [ ] traceability.md updated with implementation evidence
 - [ ] verification.md updated with test results
@@ -64,7 +65,7 @@ A PR reviewer MUST check:
 1. **Traceability**: Every changed file can be linked to a TASK-* and REQ-*.
 2. **Completeness**: All listed AC-* have verification evidence.
 3. **Scope**: No untraced changes exist without justification.
-4. **Gates**: `make gate-all` passes.
+4. **Gates**: `make gate-all` passes (includes `make arch-check`).
 5. **Docs**: traceability.md and verification.md are updated.
 
 ## Flagging Rules

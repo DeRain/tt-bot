@@ -1,0 +1,98 @@
+# Architecture dependency rules for tt-bot.
+# These encode the current layered dependency graph as machine-checkable constraints.
+# See docs/features/arch-go/design.md for the full rationale and dependency graph.
+#
+# Config schema version: 1 (tool version: arch-go v2.x)
+
+version: 1
+
+threshold:
+  compliance: 100
+  coverage: 90
+
+exclude:
+  - "**_test.go"
+
+dependenciesRules:
+  # ---- cmd layer ----
+  # cmd/bot is the composition root — it wires all internal packages together.
+  # It may depend on any internal package but must not bypass the internal layer.
+  - package: "**.cmd.**"
+    shouldOnlyDependsOn:
+      internal:
+        - "**.internal.**"
+
+  # ---- leaf packages (stdlib only) ----
+  # qbt is a leaf: qBittorrent Web API client. No internal or Telegram deps.
+  - package: "**.internal.qbt"
+    shouldNotDependsOn:
+      internal:
+        - "**.internal.**"
+      external:
+        - "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+
+  # config is a leaf: env-var loading. No internal or Telegram deps.
+  - package: "**.internal.config"
+    shouldNotDependsOn:
+      internal:
+        - "**.internal.**"
+      external:
+        - "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+
+  # ---- mid-layer packages ----
+  # formatter formats torrent data for Telegram output. Uses qbt types only.
+  - package: "**.internal.formatter"
+    shouldOnlyDependsOn:
+      internal:
+        - "**.internal.qbt"
+    shouldNotDependsOn:
+      external:
+        - "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+
+  # poller periodically checks for completed torrents via the qbt client.
+  - package: "**.internal.poller"
+    shouldOnlyDependsOn:
+      internal:
+        - "**.internal.qbt"
+    shouldNotDependsOn:
+      external:
+        - "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+
+  # ---- orchestration layer ----
+  # bot handles Telegram updates and orchestrates qbt/formatter calls.
+  # It is the only internal package allowed to import the Telegram bot API.
+  - package: "**.internal.bot"
+    shouldOnlyDependsOn:
+      internal:
+        - "**.internal.qbt"
+        - "**.internal.formatter"
+
+# Function-level constraints matching current codebase conventions.
+functionsRules:
+  # Current maxima in codebase: New has 5 params (ctx, sender, qbtClient, auth, botToken),
+  # parseFilePriorityCallback has 7 return values, handleCallback is 89 lines.
+  # These limits document current state; lower as functions are refactored.
+  - package: "**.internal.**"
+    maxParameters: 5
+    maxReturnValues: 7
+    maxLines: 100
+
+# Content rules — prevent interface definitions from leaking into implementation packages.
+contentsRules:
+  # config is a pure-implementation package: structs + functions only, no interfaces.
+  - package: "**.internal.config"
+    shouldNotContainInterfaces: true
+
+  # formatter is a pure-implementation package: structs + functions only, no interfaces.
+  - package: "**.internal.formatter"
+    shouldNotContainInterfaces: true
+
+# Naming conventions for interface implementations.
+namingRules:
+  # Structs implementing qbt.Client must end with "Client"
+  # (e.g., HTTPClient, MockClient, CachedClient).
+  - package: "**.internal.qbt"
+    interfaceImplementationNamingRule:
+      structsThatImplement:
+        internal: "*Client"
+      shouldHaveSimpleNameEndingWith: "Client"

@@ -1476,7 +1476,7 @@ func TestCallback_CategoryWithPendingMagnet_AddMagnetError_ShowsError(t *testing
 }
 
 // TestCallback_CategoryWithPendingMagnet_AddTorrentFileError_ShowsError
-// verifies the same error-surface behaviour for the file-upload path.
+// verifies the same error-surface behavior for the file-upload path.
 func TestCallback_CategoryWithPendingMagnet_AddTorrentFileError_ShowsError(t *testing.T) {
 	addErr := errors.New("qbt add torrent file: server returned 500")
 	sender := &mockSender{}

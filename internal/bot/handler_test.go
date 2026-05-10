@@ -70,20 +70,20 @@ func (m *mockSender) hasText(sub string) bool {
 
 // mockQBTClient is a minimal in-memory implementation of qbt.Client for tests.
 type mockQBTClient struct {
-	loginErr      error
-	magnets       []string
-	files         []string
-	torrents      []qbt.Torrent
-	categories    []qbt.Category
+	loginErr          error
+	magnets           []string
+	files             []string
+	torrents          []qbt.Torrent
+	categories        []qbt.Category
 	addMagnetErr      error
 	addTorrentFileErr error
 	pausedHashes      []string
-	resumedHashes []string
-	pauseErr      error
-	resumeErr     error
-	deleteErr     error
-	deletedHashes []string
-	deletedFiles  bool
+	resumedHashes     []string
+	pauseErr          error
+	resumeErr         error
+	deleteErr         error
+	deletedHashes     []string
+	deletedFiles      bool
 
 	// torrentFiles maps torrent hash to the list of files returned by ListFiles.
 	torrentFiles       map[string][]qbt.TorrentFile

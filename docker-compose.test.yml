@@ -27,4 +27,6 @@ services:
     environment:
       - QBITTORRENT_URL=http://qbittorrent:8080
       - QBITTORRENT_USERNAME=admin
-      - QBITTORRENT_PASSWORD=
+      - QBITTORRENT_PASSWORD=adminadmin
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_ALLOWED_USERS=${TELEGRAM_ALLOWED_USERS}
