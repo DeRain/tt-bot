@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+    branches: [main]
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - name: Install golangci-lint
+        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+
+      - name: Build
+        run: make build
+
+      - name: Lint
+        run: make lint
+
+      - name: Unit Tests
+        run: make test
+
+      - name: Architecture Check
+        run: make arch-check
+
+  integration:
+    runs-on: ubuntu-latest
+    needs: gate
+    services:
+      qbittorrent:
+        image: lscr.io/linuxserver/qbittorrent:latest
+        env:
+          PUID: "1000"
+          PGID: "1000"
+          TZ: Etc/UTC
+          WEBUI_PORT: "8080"
+        volumes:
+          - /home/runner/work/tt-bot/tt-bot/testdata/qbt-config:/config/qBittorrent
+        ports:
+          - 8080:8080
+        options: >-
+          --health-cmd "curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/api/v2/app/version | grep -qE '200|401|403'"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 15
+          --health-start-period 10s
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - name: Clean stale lockfile
+        run: rm -f testdata/qbt-config/lockfile
+
+      - name: Wait for qBittorrent
+        run: |
+          for i in $(seq 1 30); do
+            status=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/api/v2/app/version || echo "000")
+            echo "Attempt $i: HTTP $status"
+            if echo "$status" | grep -qE '200|401|403'; then
+              echo "qBittorrent ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "qBittorrent failed to start"
+          exit 1
+
+      - name: Run Integration + E2E Tests
+        env:
+          QBITTORRENT_URL: http://localhost:8080
+          QBITTORRENT_USERNAME: admin
+          QBITTORRENT_PASSWORD: adminadmin
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ALLOWED_USERS: ${{ secrets.TELEGRAM_ALLOWED_USERS }}
+        run: go test ./... -tags=integration -run "Integration|E2E" -v -count=1
