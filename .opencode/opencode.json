@@ -1,5 +1,70 @@
 {
   "$schema": "https://opencode.ai/config.json",
+  "model": "deepseek/deepseek-v4-pro",
+  "small_model": "deepseek/deepseek-v4-flash",
+  "agent": {
+    "build": {
+      "mode": "primary",
+      "model": "deepseek/deepseek-v4-pro"
+    },
+    "plan": {
+      "mode": "primary",
+      "model": "deepseek/deepseek-v4-pro",
+      "tools": { "write": false, "edit": false, "patch": false, "bash": false }
+    },
+    "implementer": {
+      "mode": "subagent",
+      "model": "deepseek/deepseek-v4-flash"
+    },
+    "reviewer": {
+      "mode": "subagent",
+      "model": "deepseek/deepseek-v4-pro"
+    },
+    "explore": {
+      "mode": "subagent",
+      "model": "deepseek/deepseek-v4-flash"
+    },
+    "planner": {
+      "mode": "subagent",
+      "model": "deepseek/deepseek-v4-pro"
+    },
+    "code-reviewer": {
+      "mode": "subagent",
+      "model": "deepseek/deepseek-v4-pro"
+    },
+    "security-reviewer": {
+      "mode": "subagent",
+      "model": "deepseek/deepseek-v4-pro"
+    },
+    "tdd-guide": {
+      "mode": "subagent",
+      "model": "deepseek/deepseek-v4-pro"
+    },
+    "build-error-resolver": {
+      "mode": "subagent",
+      "model": "deepseek/deepseek-v4-flash"
+    },
+    "e2e-runner": {
+      "mode": "subagent",
+      "model": "deepseek/deepseek-v4-pro"
+    },
+    "doc-updater": {
+      "mode": "subagent",
+      "model": "deepseek/deepseek-v4-pro"
+    },
+    "refactor-cleaner": {
+      "mode": "subagent",
+      "model": "deepseek/deepseek-v4-pro"
+    },
+    "go-reviewer": {
+      "mode": "subagent",
+      "model": "deepseek/deepseek-v4-pro"
+    },
+    "go-build-resolver": {
+      "mode": "subagent",
+      "model": "deepseek/deepseek-v4-flash"
+    }
+  },
   "permission": {
     "read": {
       "/Users/kiryl/Projects/tt-bot/.opencode/get-shit-done/*": "allow"
