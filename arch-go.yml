@@ -3,6 +3,10 @@
 # See docs/features/arch-go/design.md for the full rationale and dependency graph.
 #
 # Config schema version: 1 (tool version: arch-go v2.x)
+#
+# PROTECTED FILE — do not modify without explicit operator approval.
+# Architecture rules define the structural contracts of this codebase.
+# Changing them requires a feature doc (spec/design/plan) and operator review.
 
 version: 1
 

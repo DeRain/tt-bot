@@ -103,6 +103,18 @@ After implementation is complete, before committing:
 
 Never trust an implementation subagent's claim of "all tests pass" — independently verify.
 
+## Protected Files
+
+The following files define structural contracts and must NOT be modified without explicit operator approval:
+
+| File | Reason |
+|------|--------|
+| `arch-go.yml` | Architecture dependency rules — defines the layered dependency graph |
+| `.gitignore` | Build and security boundary |
+| `docker-compose.test.yml` | CI test environment contract |
+
+To change a protected file: create a feature doc (`docs/features/<id>/spec.md`), design the change, get operator review, then implement. Never modify these files as a side effect of another task.
+
 ## Environment Variables
 
 | Variable | Required | Description |
