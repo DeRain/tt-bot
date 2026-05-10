@@ -64,9 +64,14 @@ jobs:
 
       - name: Configure qBittorrent password
         run: |
-          PASS=$(docker logs tt-bot-qbittorrent-1 2>&1 | grep -oP 'The WebUI administrator password was not set[^"]*temporary password: \K\S+' | head -1 || echo "")
-          if [ -z "$PASS" ]; then
-            PASS="adminadmin"
+          PASS="adminadmin"
+          if ! curl -sf -u "admin:$PASS" http://localhost:18080/api/v2/app/version > /dev/null; then
+            PASS=$(docker logs tt-bot-qbittorrent-1 2>&1 | grep -i "temporary password" | grep -oP '\S+$' | head -1 || echo "")
+            if [ -z "$PASS" ]; then
+              PASS=$(docker logs tt-bot-qbittorrent-1 2>&1 | grep -i "password" | tail -5)
+              echo "Could not extract password. Logs above."
+              exit 1
+            fi
           fi
           echo "QBT_PASS=$PASS" >> "$GITHUB_ENV"
 
