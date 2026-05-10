@@ -39,52 +39,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.26"
-
-      - name: Start qBittorrent
-        run: |
-          sudo chown -R 1000:1000 testdata/qbt-config
-          docker compose -f docker-compose.test.yml up -d qbittorrent
-
-      - name: Wait for qBittorrent
-        run: |
-          for i in $(seq 1 30); do
-            status=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:18080/api/v2/app/version || echo "000")
-            echo "Attempt $i: HTTP $status"
-            if echo "$status" | grep -qE '200|401|403'; then
-              echo "qBittorrent ready"
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "qBittorrent failed to start"
-          exit 1
-
-      - name: Configure qBittorrent password
-        run: |
-          PASS="adminadmin"
-          if ! curl -sf -u "admin:$PASS" http://localhost:18080/api/v2/app/version > /dev/null; then
-            PASS=$(docker logs tt-bot-qbittorrent-1 2>&1 | grep -i "temporary password" | grep -oP '\S+$' | head -1 || echo "")
-            if [ -z "$PASS" ]; then
-              PASS=$(docker logs tt-bot-qbittorrent-1 2>&1 | grep -i "password" | tail -5)
-              echo "Could not extract password. Logs above."
-              exit 1
-            fi
-          fi
-          echo "QBT_PASS=$PASS" >> "$GITHUB_ENV"
-
       - name: Run Integration + E2E Tests
         env:
-          QBITTORRENT_URL: http://localhost:18080
-          QBITTORRENT_USERNAME: admin
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_ALLOWED_USERS: ${{ secrets.TELEGRAM_ALLOWED_USERS }}
         run: |
-          export QBITTORRENT_PASSWORD="${QBT_PASS:-adminadmin}"
-          go test ./... -tags=integration -run "Integration|E2E" -v -count=1
-
-      - name: Stop qBittorrent
-        if: always()
-        run: docker compose -f docker-compose.test.yml down
+          rm -f testdata/qbt-config/lockfile
+          docker compose -f docker-compose.test.yml up --build --abort-on-container-exit integration-tests
+          docker compose -f docker-compose.test.yml down
