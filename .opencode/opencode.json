@@ -69,6 +69,15 @@
     "read": {
       "/Users/kiryl/Projects/tt-bot/.opencode/get-shit-done/*": "allow"
     },
+    "write": {
+      "/Users/kiryl/Projects/tt-bot/arch-go.yml": "deny",
+      "/Users/kiryl/Projects/tt-bot/docker-compose.test.yml": "deny",
+      "/Users/kiryl/Projects/tt-bot/.gitignore": "deny"
+    },
+    "bash": {
+      "rm *testdata/*": "deny",
+      "rm -rf *testdata/*": "deny"
+    },
     "external_directory": {
       "/Users/kiryl/Projects/tt-bot/.opencode/get-shit-done/*": "allow"
     }
