@@ -224,46 +224,44 @@ Use `main` as the base branch for PRs. Keep changes scoped to one feature or fix
 
 Never commit real bot tokens, Telegram user IDs that are not already intended for the repo, or qBittorrent credentials. If configuration changes affect deployment behavior, update `README.md` and the relevant feature docs in the same change.
 
-<!-- gitnexus:start -->
-# GitNexus — Code Intelligence
+<!-- code-intel:start -->
+# Code Intelligence — CLI + LSP Tools
 
-This project is indexed by GitNexus as **tt-bot** (2354 symbols, 5126 relationships, 92 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+Code navigation uses gopls (Go language server) and standard CLI tools. No indexing step required.
 
-> If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
+## LSP Tools (in-session, preferred)
 
-## Always Do
+| Action | Tool |
+|--------|------|
+| Find all references/callers | `lsp_find_references` |
+| Jump to definition | `lsp_goto_definition` |
+| Workspace symbol search | `lsp_symbols` |
+| Check diagnostics | `lsp_diagnostics` |
+| Rename safely | `lsp_rename` (use `lsp_prepare_rename` first) |
 
-- **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `gitnexus_impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
-- **MUST run `gitnexus_detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows.
-- **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
-- When exploring unfamiliar code, use `gitnexus_query({query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
-- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `gitnexus_context({name: "symbolName"})`.
+## CLI Tools (when LSP unavailable or for scripts)
 
-## Never Do
+| Action | Command |
+|--------|---------|
+| Call hierarchy (callers + callees) | `gopls call_hierarchy file:line:col` |
+| Find interface implementations | `gopls implementation file:line:col` |
+| Find references | `gopls references file:line:col` |
+| Jump to definition | `gopls definition file:line:col` |
+| Check for errors | `gopls check file.go` |
+| Structural search (AST) | `sg -p 'pattern' -l go` |
+| Content search (regex) | `rg 'pattern'` |
+| File search | `fd 'pattern'` |
+| Lint | `golangci-lint run` |
 
-- NEVER edit a function, class, or method without first running `gitnexus_impact` on it.
-- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
-- NEVER rename symbols with find-and-replace — use `gitnexus_rename` which understands the call graph.
-- NEVER commit changes without running `gitnexus_detect_changes()` to check affected scope.
+## Workflows
 
-## Resources
+### Before Editing a Symbol
+1. `lsp_find_references` — see all callers
+2. If modifying an interface: `gopls implementation file:line:col`
+3. For deep impact: recurse `lsp_find_references` on each caller
 
-| Resource | Use for |
-|----------|---------|
-| `gitnexus://repo/tt-bot/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/tt-bot/clusters` | All functional areas |
-| `gitnexus://repo/tt-bot/processes` | All execution flows |
-| `gitnexus://repo/tt-bot/process/{name}` | Step-by-step execution trace |
-
-## CLI
-
-| Task | Read this skill file |
-|------|---------------------|
-| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
-| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
-| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
-| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
-| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
-| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
-
-<!-- gitnexus:end -->
+### Before Committing
+1. `lsp_diagnostics` on changed files
+2. `make gate-all` (build + lint + unit tests)
+3. `make test-integration` for API-facing changes
+<!-- code-intel:end -->

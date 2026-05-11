@@ -65,6 +65,12 @@
       "model": "deepseek/deepseek-v4-flash"
     }
   },
+  "lsp": {
+    "gopls": {
+      "command": ["/Users/kiryl/go/bin/gopls"],
+      "extensions": [".go"]
+    }
+  },
   "permission": {
     "read": {
       "/Users/kiryl/Projects/tt-bot/.opencode/get-shit-done/*": "allow"
