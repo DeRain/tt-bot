@@ -427,7 +427,7 @@ func (h *Handler) handleTorrentAction(ctx context.Context, cq *tgbotapi.Callback
 	text := formatter.FormatTorrentDetail(torrent)
 	kb := toTGKeyboard(formatter.TorrentDetailKeyboard(hash, filterChar, page, torrent.State))
 
-	h.answerCallback(cq.ID, "")
+	h.answerCallback(cq.ID, actionText)
 	h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &kb)
 
 	h.registerLiveView(cq.Message.Chat.ID, &LiveView{
