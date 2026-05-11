@@ -29,51 +29,6 @@ internal/poller/          → background goroutine polling for completed torrent
 
 **Auth**: qBittorrent uses SID cookie auth with auto-re-login on 403. Telegram users whitelisted by numeric ID.
 
-## Model Routing
-
-This project uses role-based delegation to optimize cost and quality. The orchestrator (main session) plans and reviews; implementation subagents execute code changes; lightweight subagents handle verification.
-
-### Claude Code Routing
-
-| Role | Model | Scope |
-|------|-------|-------|
-| Orchestration | Opus | Docs (`.md`), plans, git ops, `.claude/` config, review |
-| Implementation | Sonnet (subagents) | `*.go`, `*.yaml`, `Dockerfile`, `docker-compose*.yml`, `Makefile`, `*.toml`, `*.json`, `.env*` |
-| Gate checks | Haiku (subagents) | Lint, build, coverage verification |
-
-Dispatch implementation subagents with `model: sonnet`. Dispatch gate checks with `model: haiku`.
-
-### OpenCode Routing (DeepSeek)
-
-| Role | Agent | DeepSeek Model | Cost/1M tokens |
-|------|-------|---------------|----------------|
-| Orchestration | **build** (primary) | `deepseek/deepseek-v4-pro` | $0.435 / $0.87 |
-| Implementation | **@implementer** (subagent) | `deepseek/deepseek-v4-flash` | $0.14 / $0.28 |
-| Code review | **@reviewer** (subagent) | `deepseek/deepseek-v4-pro` | $0.435 / $0.87 |
-| Exploration | **explore** (built-in) | `deepseek/deepseek-v4-flash` | $0.14 / $0.28 |
-
-Implementation uses `deepseek-v4-flash` because tasks follow a detailed plan (`docs/features/<feature-id>/plan.md`) with explicit `TASK-*` steps — the model just needs to execute, not design. This saves ~3x in cost vs v4-pro.
-
-To configure in `opencode.json`:
-```json
-{
-  "model": "deepseek/deepseek-v4-pro",
-  "agent": {
-    "implementer": { "mode": "subagent", "model": "deepseek/deepseek-v4-flash" },
-    "reviewer": { "mode": "subagent", "model": "deepseek/deepseek-v4-pro" }
-  }
-}
-```
-
-### Cross-Tool Equivalence
-
-| Concern | Claude Code | OpenCode |
-|---------|------------|----------|
-| Orchestration | Opus | build primary (v4-pro) |
-| Implementation | Sonnet subagent | @implementer (v4-flash) |
-| Code review | Opus | @reviewer (v4-pro) |
-| Gate checks | Haiku subagent | explore (v4-flash) |
-
 ## Build, Test, and Development Commands
 
 | Command | Description |
@@ -88,20 +43,6 @@ To configure in `opencode.json`:
 For local services, use `docker compose up --build` to run the bot with qBittorrent. For focused test runs, use commands such as `go test ./internal/qbt -run TestLogin -short -v`.
 
 **Integration tests are MANDATORY.** Always run `make test-integration` before marking any AC as PASS or any feature as complete. Unit tests with mocks cannot catch real API contract issues — endpoint renames, response format changes, and auth behavior differences are invisible to httptest-based tests. This was learned the hard way: qBittorrent v5 renamed `/pause` → `/stop` and `/resume` → `/start`, and only `make test-integration` caught the 404s.
-
-## Pre-Commit Quality Gate (MANDATORY)
-
-**See `docs/gates.md` for full gate definitions and the Iterative Harness Loop Protocol.**
-
-After implementation is complete, before committing:
-
-1. Run `make gate-all` (build + lint + unit tests)
-2. Run `make test-integration` (Docker-based integration + E2E tests)
-3. Review changes for traceability (every change maps to a TASK-*/REQ-*)
-4. Address any code review findings
-5. **ONLY THEN**: commit, push, create PR
-
-Never trust an implementation subagent's claim of "all tests pass" — independently verify.
 
 ## Protected Files
 
@@ -177,9 +118,14 @@ All external dependencies are behind interfaces. When adding new qBittorrent API
 2. Implement in `internal/qbt/http.go`
 3. Wire into bot handler via `internal/bot/callback.go` or `internal/bot/handler.go`
 
-## Docs-First Workflow
+## Feature Documentation
 
-Non-trivial changes should start in `docs/features/<feature-id>/`. Define requirements in `spec.md`, map them in `design.md`, break them into `TASK-*` items in `plan.md`, then record implementation evidence in `traceability.md` and results in `verification.md`. Keep identifiers stable and reference them in code changes, commits, and PR descriptions where practical.
+Features are documented in `docs/features/<feature-id>/` with:
+- `spec.md` — requirements
+- `design.md` — architecture decisions
+- `plan.md` — implementation tasks
+- `traceability.md` — evidence mapping
+- `verification.md` — test results
 
 ### Identifier Conventions
 
