@@ -60,7 +60,7 @@ func TestCallback_CategoryWithPendingMagnet_CallsAddMagnet(t *testing.T) {
 	sender := &mockSender{}
 	qbtClient := &mockQBTClient{}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	magnet := "magnet:?xt=urn:btih:abc123"
 	h.storePending(1, &PendingTorrent{MagnetLink: magnet, CreatedAt: time.Now()})
@@ -84,7 +84,7 @@ func TestCallback_CategoryWithNoPending_ReturnsError(t *testing.T) {
 	sender := &mockSender{}
 	qbtClient := &mockQBTClient{}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	// No pending torrent stored.
 	update := newCallbackUpdate(1, "cb2", "cat:Movies")
@@ -118,7 +118,7 @@ func TestCallback_PaginationAll_FetchesCorrectPage(t *testing.T) {
 	}
 	qbtClient := &mockQBTClient{torrents: torrents}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	update := newCallbackUpdate(1, "cb3", "pg:all:2")
 	h.HandleUpdate(context.Background(), update)
@@ -136,7 +136,7 @@ func TestCallback_PaginationActive_FetchesCorrectPage(t *testing.T) {
 	}
 	qbtClient := &mockQBTClient{torrents: torrents}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	update := newCallbackUpdate(1, "cb4", "pg:act:2")
 	h.HandleUpdate(context.Background(), update)
@@ -150,7 +150,7 @@ func TestCallback_Noop_JustAnswers(t *testing.T) {
 	sender := &mockSender{}
 	qbtClient := &mockQBTClient{}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	update := newCallbackUpdate(1, "cb5", "noop")
 	h.HandleUpdate(context.Background(), update)
@@ -218,7 +218,7 @@ func TestCallback_Select_ShowsDetailView(t *testing.T) {
 		},
 	}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	update := newCallbackUpdate(1, "cb-sel", "sel:a:1:"+hash)
 	h.HandleUpdate(context.Background(), update)
@@ -235,7 +235,7 @@ func TestCallback_Select_TorrentNotFound(t *testing.T) {
 	sender := &mockSender{}
 	qbtClient := &mockQBTClient{torrents: []qbt.Torrent{}}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	hash := strings.Repeat("d", 40)
 	update := newCallbackUpdate(1, "cb-sel-nf", "sel:a:1:"+hash)
@@ -267,7 +267,7 @@ func TestCallback_Pause_CallsPauseAndRefreshes(t *testing.T) {
 		},
 	}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	update := newCallbackUpdate(1, "cb-pa", "pa:a:1:"+hash)
 	h.HandleUpdate(context.Background(), update)
@@ -293,7 +293,7 @@ func TestCallback_Resume_CallsResumeAndRefreshes(t *testing.T) {
 		},
 	}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	update := newCallbackUpdate(1, "cb-re", "re:a:1:"+hash)
 	h.HandleUpdate(context.Background(), update)
@@ -323,7 +323,7 @@ func TestCallback_Back_ReturnsToList(t *testing.T) {
 		},
 	}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	update := newCallbackUpdate(1, "cb-bk", "bk:a:1")
 	h.HandleUpdate(context.Background(), update)
@@ -337,7 +337,7 @@ func TestCallback_Pause_InvalidFormat(t *testing.T) {
 	sender := &mockSender{}
 	qbtClient := &mockQBTClient{}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	update := newCallbackUpdate(1, "cb-pa-bad", "pa:invalid")
 	h.HandleUpdate(context.Background(), update)
@@ -359,7 +359,7 @@ func TestCallback_Select_InvalidFilter(t *testing.T) {
 	sender := &mockSender{}
 	qbtClient := &mockQBTClient{}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	hash := strings.Repeat("a", 40)
 	update := newCallbackUpdate(1, "cb-sel-bad", "sel:x:1:"+hash)
@@ -382,7 +382,7 @@ func TestCallback_Back_InvalidFormat(t *testing.T) {
 	sender := &mockSender{}
 	qbtClient := &mockQBTClient{}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	update := newCallbackUpdate(1, "cb-bk-bad", "bk:invalid")
 	h.HandleUpdate(context.Background(), update)
@@ -412,7 +412,7 @@ func TestCallback_PaginationAll_IncludesSelectionKeyboard(t *testing.T) {
 	}
 	qbtClient := &mockQBTClient{torrents: torrents}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	update := newCallbackUpdate(1, "cb-pg", "pg:all:1")
 	h.HandleUpdate(context.Background(), update)
@@ -480,7 +480,7 @@ func TestCallback_PaginationDownloading_FetchesCorrectPage(t *testing.T) {
 	}
 	qbtClient := &mockQBTClient{torrents: torrents}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	update := newCallbackUpdate(1, "cb-dw", "pg:dw:2")
 	h.HandleUpdate(context.Background(), update)
@@ -533,7 +533,7 @@ func TestCallback_PaginationUploading_FetchesCorrectPage(t *testing.T) {
 	}
 	qbtClient := &mockQBTClient{torrents: torrents}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	update := newCallbackUpdate(1, "cb-up", "pg:up:2")
 	h.HandleUpdate(context.Background(), update)
@@ -556,7 +556,7 @@ func TestCallback_RemoveConfirm_ShowsConfirmationView(t *testing.T) {
 		},
 	}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	update := newCallbackUpdate(1, "cb-rm", "rm:a:1:"+hash)
 	h.HandleUpdate(context.Background(), update)
@@ -579,7 +579,7 @@ func TestCallback_RemoveConfirm_TorrentNotFound_NavigatesToList(t *testing.T) {
 	sender := &mockSender{}
 	qbtClient := &mockQBTClient{torrents: []qbt.Torrent{}}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	hash := strings.Repeat("b", 40)
 	update := newCallbackUpdate(1, "cb-rm-nf", "rm:a:1:"+hash)
@@ -602,7 +602,7 @@ func TestCallback_RemoveConfirm_InvalidFormat(t *testing.T) {
 	sender := &mockSender{}
 	qbtClient := &mockQBTClient{}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	update := newCallbackUpdate(1, "cb-rm-bad", "rm:invalid")
 	h.HandleUpdate(context.Background(), update)
@@ -633,7 +633,7 @@ func TestCallback_RemoveDelete_NoFiles_CallsDeleteAndNavigatesToList(t *testing.
 		},
 	}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	update := newCallbackUpdate(1, "cb-rd", "rd:a:1:"+hash)
 	h.HandleUpdate(context.Background(), update)
@@ -661,7 +661,7 @@ func TestCallback_RemoveDelete_WithFiles_CallsDeleteWithFilesTrue(t *testing.T) 
 		},
 	}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	update := newCallbackUpdate(1, "cb-rf", "rf:a:1:"+hash)
 	h.HandleUpdate(context.Background(), update)
@@ -682,7 +682,7 @@ func TestCallback_RemoveDelete_EmptyListAfterDeletion_ShowsEmptyListMessage(t *t
 		torrents: []qbt.Torrent{}, // list is empty after deletion
 	}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	update := newCallbackUpdate(1, "cb-rd-empty", "rd:a:1:"+hash)
 	h.HandleUpdate(context.Background(), update)
@@ -700,7 +700,7 @@ func TestCallback_RemoveDelete_DeleteError_AnswersWithError(t *testing.T) {
 		deleteErr: fmt.Errorf("qbt unavailable"),
 	}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	update := newCallbackUpdate(1, "cb-rd-err", "rd:a:1:"+hash)
 	h.HandleUpdate(context.Background(), update)
@@ -731,7 +731,7 @@ func TestCallback_RemoveCancel_ReturnsToDetailView(t *testing.T) {
 		},
 	}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	update := newCallbackUpdate(1, "cb-rc", "rc:a:1:"+hash)
 	h.HandleUpdate(context.Background(), update)
@@ -754,7 +754,7 @@ func TestCallback_RemoveCancel_TorrentNotFound_NavigatesToList(t *testing.T) {
 	sender := &mockSender{}
 	qbtClient := &mockQBTClient{torrents: []qbt.Torrent{}}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	hash := strings.Repeat("b", 40)
 	update := newCallbackUpdate(1, "cb-rc-nf", "rc:a:1:"+hash)
@@ -806,7 +806,7 @@ func TestCallback_RemovePrefixesRoutedCorrectly(t *testing.T) {
 				},
 			}
 			auth := NewAuthorizer([]int64{1})
-			h := New(context.Background(), sender, qbtClient, auth, "test-token")
+			h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 			update := newCallbackUpdate(1, "cb-route", tt.data)
 			h.HandleUpdate(context.Background(), update)
@@ -837,7 +837,7 @@ func TestCallback_RemoveDelete_Routing_BothPrefixes(t *testing.T) {
 				torrents: []qbt.Torrent{},
 			}
 			auth := NewAuthorizer([]int64{1})
-			h := New(context.Background(), sender, qbtClient, auth, "test-token")
+			h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 			update := newCallbackUpdate(1, "cb-del-route", tt.data)
 			h.HandleUpdate(context.Background(), update)
@@ -858,7 +858,7 @@ func TestCallback_CategoryWithNoCategory_ShowsGenericConfirm(t *testing.T) {
 	sender := &mockSender{}
 	qbtClient := &mockQBTClient{}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	h.storePending(1, &PendingTorrent{MagnetLink: "magnet:?xt=urn:btih:fff", CreatedAt: time.Now()})
 
@@ -913,7 +913,7 @@ func TestCallback_FileSelect_NegativeFileIndex_AnswersInvalid(t *testing.T) {
 	sender := &mockSender{}
 	qbtClient := &mockQBTClient{}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	hash := strings.Repeat("a", 40)
 	// Negative fileIndex: fs:<hash>:-1:<filePage>:<filterChar>:<listPage>
@@ -1005,7 +1005,7 @@ func TestCallback_FilePriority_InvalidPriority_AnswersInvalidPriority(t *testing
 	sender := &mockSender{}
 	qbtClient := &mockQBTClient{}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	hash := strings.Repeat("c", 40)
 	// priority=5 is invalid (not in {0,1,6,7})
@@ -1032,7 +1032,7 @@ func TestCallback_FilePriority_NegativeFileIndex_AnswersInvalid(t *testing.T) {
 	sender := &mockSender{}
 	qbtClient := &mockQBTClient{}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	hash := strings.Repeat("c", 40)
 	// fp:<hash>:-1:<priority>:<filePage>:<filterChar>:<listPage>
@@ -1057,7 +1057,7 @@ func TestCallback_FilePriority_ValidCall_SetsFilePriority(t *testing.T) {
 	sender := &mockSender{}
 	qbtClient := &mockQBTClient{}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	hash := strings.Repeat("d", 40)
 	// priority=6 (FilePriorityHigh), fileIndex=2
@@ -1096,7 +1096,7 @@ func TestDetailKeyboardFilesButton(t *testing.T) {
 		},
 	}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	// Trigger detail view via sel: callback.
 	update := newCallbackUpdate(1, "cb-detail-files", "sel:a:1:"+hash)
@@ -1143,7 +1143,7 @@ func TestCallbackFL_ShowsFileList(t *testing.T) {
 		},
 	}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	// fl:<filterChar>:<listPage>:<hash>
 	update := newCallbackUpdate(1, "cb-fl", "fl:a:1:"+hash)
@@ -1169,7 +1169,7 @@ func TestCallbackFL_ListFilesError(t *testing.T) {
 		listFilesErr: fmt.Errorf("qbt unavailable"),
 	}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	update := newCallbackUpdate(1, "cb-fl-err", "fl:a:1:"+hash)
 	h.HandleUpdate(context.Background(), update)
@@ -1211,7 +1211,7 @@ func TestCallbackPgFL_NavigatesToCorrectPage(t *testing.T) {
 		torrentFiles: map[string][]qbt.TorrentFile{hash: files},
 	}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	// pg:fl:<hash>:<filePage>:<filterChar>:<listPage>
 	update := newCallbackUpdate(1, "cb-pgfl", "pg:fl:"+hash+":2:a:1")
@@ -1240,7 +1240,7 @@ func TestCallbackFS_ShowsPriorityKeyboard(t *testing.T) {
 		},
 	}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	// fs:<hash>:<fileIndex>:<filePage>:<filterChar>:<listPage>
 	update := newCallbackUpdate(1, "cb-fs", "fs:"+hash+":0:1:a:1")
@@ -1274,7 +1274,7 @@ func TestCallbackFP_SetsFilePriorityAndRefreshes(t *testing.T) {
 		},
 	}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	// fp:<hash>:<fileIndex>:<priority>:<filePage>:<filterChar>:<listPage>
 	// Set fileIndex=0 to priority=0 (Skip).
@@ -1303,7 +1303,7 @@ func TestCallbackFP_SetPriorityError_AnswersWithError(t *testing.T) {
 		setFilePriorityErr: fmt.Errorf("qbt unavailable"),
 	}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	update := newCallbackUpdate(1, "cb-fp-err", "fp:"+hash+":0:1:1:a:1")
 	h.HandleUpdate(context.Background(), update)
@@ -1334,7 +1334,7 @@ func TestCallbackBkFL_ReturnsToDetailView(t *testing.T) {
 		},
 	}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	// bk:fl:<filterChar>:<listPage>:<hash>
 	update := newCallbackUpdate(1, "cb-bkfl", "bk:fl:a:1:"+hash)
@@ -1354,7 +1354,7 @@ func TestCallbackBkFL_InvalidFormat(t *testing.T) {
 	sender := &mockSender{}
 	qbtClient := &mockQBTClient{}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	update := newCallbackUpdate(1, "cb-bkfl-bad", "bk:fl:invalid")
 	h.HandleUpdate(context.Background(), update)
@@ -1382,7 +1382,7 @@ func TestAwaitStateChange_DetectsChange(t *testing.T) {
 		},
 	}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), nil, qbtClient, auth, "test-token")
+	h := New(context.Background(), nil, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	// Simulate state change after 50ms.
 	go func() {
@@ -1409,7 +1409,7 @@ func TestAwaitStateChange_ContextCanceled(t *testing.T) {
 		},
 	}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), nil, qbtClient, auth, "test-token")
+	h := New(context.Background(), nil, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately.
@@ -1425,7 +1425,7 @@ func TestAwaitStateChange_TorrentDisappears(t *testing.T) {
 		torrents: []qbt.Torrent{}, // No torrents.
 	}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), nil, qbtClient, auth, "test-token")
+	h := New(context.Background(), nil, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	hash := strings.Repeat("e", 40)
 	_, changed := h.awaitStateChange(context.Background(), hash, "downloading")
@@ -1448,7 +1448,7 @@ func TestCallback_CategoryWithPendingMagnet_AddMagnetError_ShowsError(t *testing
 		addMagnetErr: addErr,
 	}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	magnet := "magnet:?nothing"
 	h.storePending(1, &PendingTorrent{MagnetLink: magnet, CreatedAt: time.Now()})
@@ -1484,7 +1484,7 @@ func TestCallback_CategoryWithPendingMagnet_AddTorrentFileError_ShowsError(t *te
 		addTorrentFileErr: addErr,
 	}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	h.storePending(1, &PendingTorrent{
 		FileName:  "test.torrent",

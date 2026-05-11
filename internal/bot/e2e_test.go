@@ -55,7 +55,7 @@ func TestE2E_UnauthorizedUserRejected(t *testing.T) {
 	qbtClient := getQBTClient(t)
 	sender := &mockSender{}
 	auth := NewAuthorizer([]int64{999}) // only user 999 is allowed
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	update := newCommandUpdate(100, 123, "list")
 	h.HandleUpdate(context.Background(), update)
@@ -76,7 +76,7 @@ func TestE2E_AddMagnetWithCategorySelection(t *testing.T) {
 	qbtClient := getQBTClient(t)
 	sender := &mockSender{}
 	auth := NewAuthorizer([]int64{userID})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	ctx := context.Background()
 
@@ -163,7 +163,7 @@ func TestE2E_ListReturnsRealTorrents(t *testing.T) {
 
 	sender := &mockSender{}
 	auth := NewAuthorizer([]int64{userID})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	update := newCommandUpdate(chatID, userID, "list")
 	h.HandleUpdate(ctx, update)
@@ -206,7 +206,7 @@ func TestE2E_ListPagination(t *testing.T) {
 
 	sender := &mockSender{}
 	auth := NewAuthorizer([]int64{userID})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	// Step 1: Fetch page 1.
 	listUpdate := newCommandUpdate(chatID, userID, "list")
@@ -254,7 +254,7 @@ func TestE2E_SelectTorrentShowsDetail(t *testing.T) {
 
 	sender := &mockSender{}
 	auth := NewAuthorizer([]int64{userID})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	// Step 1: List torrents.
 	listUpdate := newCommandUpdate(chatID, userID, "list")
@@ -331,7 +331,7 @@ func TestE2E_PauseResumeTorrent(t *testing.T) {
 
 	sender := &mockSender{}
 	auth := NewAuthorizer([]int64{userID})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	// Step 1: Pause the torrent.
 	paCallback := newCallbackUpdate(chatID, "cb-pa", "pa:a:1:"+hash)
@@ -405,7 +405,7 @@ func TestE2E_DownloadingCommandShowsIncompleteTorrents(t *testing.T) {
 
 	sender := &mockSender{}
 	auth := NewAuthorizer([]int64{userID})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	update := newCommandUpdate(chatID, userID, "downloading")
 	h.HandleUpdate(ctx, update)
@@ -486,7 +486,7 @@ func TestE2E_DownloadingPaginationAndSelection(t *testing.T) {
 
 	sender := &mockSender{}
 	auth := NewAuthorizer([]int64{userID})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	// Step 1: Issue /downloading to establish the list view.
 	listUpdate := newCommandUpdate(chatID, userID, "downloading")
@@ -566,7 +566,7 @@ func TestE2E_ListResponseContainsMappedStateLabel(t *testing.T) {
 
 	sender := &mockSender{}
 	auth := NewAuthorizer([]int64{userID})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	update := newCommandUpdate(chatID, userID, "list")
 	h.HandleUpdate(ctx, update)
@@ -645,7 +645,7 @@ func TestE2E_DetailViewContainsUploadedAndRatio(t *testing.T) {
 
 	sender := &mockSender{}
 	auth := NewAuthorizer([]int64{userID})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	// Select the first torrent to trigger the detail view.
 	selCallback := newCallbackUpdate(chatID, "cb-detail-extra", "sel:a:1:"+hash)
@@ -676,7 +676,7 @@ func TestE2E_UploadingCommandReturnsValidResponse(t *testing.T) {
 
 	sender := &mockSender{}
 	auth := NewAuthorizer([]int64{userID})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	update := newCommandUpdate(chatID, userID, "uploading")
 	h.HandleUpdate(ctx, update)
@@ -726,7 +726,7 @@ func TestE2E_UploadingPaginationCallback(t *testing.T) {
 
 	sender := &mockSender{}
 	auth := NewAuthorizer([]int64{userID})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	// Step 1: Issue /uploading to establish the list view.
 	listUpdate := newCommandUpdate(chatID, userID, "uploading")
@@ -786,7 +786,7 @@ func TestE2E_RemoveTorrent(t *testing.T) {
 
 	sender := &mockSender{}
 	auth := NewAuthorizer([]int64{userID})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	// Step 1: rm: shows the confirmation view (non-destructive, AC-2.2).
 	sender.sentMessages = nil
@@ -878,7 +878,7 @@ func TestE2E_RemoveCancelReturnsToDetail(t *testing.T) {
 
 	sender := &mockSender{}
 	auth := NewAuthorizer([]int64{userID})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	// rc: should return to the detail view (AC-6.1).
 	rcCallback := newCallbackUpdate(chatID, "cb-rc-e2e", "rc:a:1:"+hash)
@@ -936,7 +936,7 @@ func TestE2E_DetailKeyboardContainsFilesButton(t *testing.T) {
 
 	sender := &mockSender{}
 	auth := NewAuthorizer([]int64{userID})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	// Select the torrent to render the detail keyboard.
 	selCallback := newCallbackUpdate(chatID, "cb-fl-btn", "sel:a:1:"+hash)
@@ -987,7 +987,7 @@ func TestE2E_FileListCallback(t *testing.T) {
 
 	sender := &mockSender{}
 	auth := NewAuthorizer([]int64{userID})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	// fl:<filterChar>:<listPage>:<hash> — open file list.
 	flCallback := newCallbackUpdate(chatID, "cb-fl-e2e", "fl:a:1:"+hash)
@@ -1045,7 +1045,7 @@ func TestE2E_FilePriorityChange(t *testing.T) {
 
 	sender := &mockSender{}
 	auth := NewAuthorizer([]int64{userID})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	fileIdx := files[0].Index
 
@@ -1111,7 +1111,7 @@ func TestE2E_InvalidMagnetSurfacesValidationError(t *testing.T) {
 
 	sender := &mockSender{}
 	auth := NewAuthorizer([]int64{userID})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	// Step 1: Send the malformed magnet link. The bot must reply with the
 	// category selection keyboard (it detects "magnet:?" without validating yet).
@@ -1166,7 +1166,7 @@ func TestE2E_ActiveCommandShowsDownloading(t *testing.T) {
 
 	sender := &mockSender{}
 	auth := NewAuthorizer([]int64{userID})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	update := newCommandUpdate(chatID, userID, "active")
 	h.HandleUpdate(ctx, update)
@@ -1181,5 +1181,108 @@ func TestE2E_ActiveCommandShowsDownloading(t *testing.T) {
 		if len(text) == 0 {
 			t.Error("received empty text message for /active")
 		}
+	}
+}
+
+// TestE2E_AutoRefresh_ListView verifies that the auto-refresh logic works
+// end-to-end with a real qBittorrent: registering a live list view and
+// calling refreshViews updates the message content.
+func TestE2E_AutoRefresh_ListView(t *testing.T) {
+	const (
+		chatID    = int64(2000)
+		messageID = 999
+	)
+
+	ctx := context.Background()
+	qbtClient := getQBTClient(t)
+
+	// Add a torrent so the list is not empty.
+	if err := qbtClient.AddMagnet(ctx, ubuntuMagnet, ""); err != nil {
+		t.Fatalf("failed to add magnet: %v", err)
+	}
+
+	// Wait briefly for torrent metadata to appear.
+	time.Sleep(3 * time.Second)
+
+	sender := &mockSender{}
+	auth := NewAuthorizer([]int64{chatID})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{
+		BotToken:            "test-token",
+		ViewRefreshInterval: 5 * time.Second,
+	})
+
+	// Register a live list view.
+	h.registerLiveView(chatID, &LiveView{
+		ChatID:    chatID,
+		MessageID: messageID,
+		ViewType:  ViewList,
+		Filter:    qbt.FilterAll,
+		Page:      1,
+	})
+
+	// Trigger a refresh.
+	h.refreshViews(ctx)
+
+	// The mock sender should have received an EditMessageTextConfig request.
+	if !sender.hasRequest() {
+		t.Fatal("expected editMessageText to be called after refreshViews")
+	}
+
+	// Reset and refresh again — content should be identical (no edit).
+	sender.reset()
+	h.refreshViews(ctx)
+	if sender.hasRequest() {
+		t.Fatal("expected no edit on unchanged content after second refresh")
+	}
+}
+
+// TestE2E_AutoRefresh_DetailView verifies that refreshViews works for a
+// detail view with real qBittorrent data.
+func TestE2E_AutoRefresh_DetailView(t *testing.T) {
+	const (
+		chatID    = int64(3000)
+		messageID = 1001
+	)
+
+	ctx := context.Background()
+	qbtClient := getQBTClient(t)
+
+	// Add a torrent and get its hash.
+	if err := qbtClient.AddMagnet(ctx, ubuntuMagnet, ""); err != nil {
+		t.Fatalf("failed to add magnet: %v", err)
+	}
+	time.Sleep(3 * time.Second)
+
+	torrents, err := qbtClient.ListTorrents(ctx, qbt.ListOptions{Filter: qbt.FilterAll})
+	if err != nil {
+		t.Fatalf("failed to list torrents: %v", err)
+	}
+	if len(torrents) == 0 {
+		t.Fatal("expected at least one torrent after adding magnet")
+	}
+
+	sender := &mockSender{}
+	auth := NewAuthorizer([]int64{chatID})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{
+		BotToken:            "test-token",
+		ViewRefreshInterval: 5 * time.Second,
+	})
+
+	// Register a live detail view.
+	h.registerLiveView(chatID, &LiveView{
+		ChatID:      chatID,
+		MessageID:   messageID,
+		ViewType:    ViewDetail,
+		TorrentHash: torrents[0].Hash,
+		FilterChar:  "a",
+		Page:        1,
+	})
+
+	// Trigger a refresh.
+	h.refreshViews(ctx)
+
+	// The mock sender should have received an edit request.
+	if !sender.hasRequest() {
+		t.Fatal("expected editMessageText for detail view after refreshViews")
 	}
 }

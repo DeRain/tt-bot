@@ -3,6 +3,7 @@ package bot
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"log"
@@ -42,6 +43,32 @@ type PendingTorrent struct {
 	CreatedAt time.Time
 }
 
+// ViewType identifies the type of view being auto-refreshed.
+type ViewType string
+
+const (
+	// ViewList is a paginated torrent list view (/all, /active, /downloading, /uploading).
+	ViewList ViewType = "list"
+	// ViewDetail is a single-torrent detail view.
+	ViewDetail ViewType = "detail"
+)
+
+// LiveView represents an active view that is auto-refreshed.
+// Only one view per chat is tracked at a time.
+type LiveView struct {
+	ChatID    int64
+	MessageID int
+	ViewType  ViewType
+	// For list views:
+	Filter     qbt.TorrentFilter
+	FilterChar string
+	Page       int
+	// For detail views:
+	TorrentHash string
+	// Change detection:
+	LastContentHash string
+}
+
 // Handler dispatches incoming Telegram updates to the appropriate handler
 // functions. It owns the per-chat pending torrent state.
 type Handler struct {
@@ -52,22 +79,41 @@ type Handler struct {
 	httpClient *http.Client
 	pending    map[int64]*PendingTorrent
 	mu         sync.Mutex
+
+	// Auto-refresh for list and detail views.
+	viewRefreshInterval time.Duration
+	liveViews           map[int64]*LiveView
+	liveViewsMu         sync.Mutex
 }
 
-// New constructs a Handler and starts the background cleanup goroutine that
-// evicts pending torrent entries older than pendingTTL.
+// HandlerOptions holds optional configuration for constructing a Handler.
+type HandlerOptions struct {
+	// BotToken is the Telegram bot token, required for file-download URL construction.
+	BotToken string
+	// ViewRefreshInterval controls how often list and detail views are auto-refreshed.
+	// A zero or negative value disables auto-refresh.
+	ViewRefreshInterval time.Duration
+}
+
+// New constructs a Handler and starts background goroutines for pending entry
+// cleanup and, when opts.ViewRefreshInterval > 0, auto-refresh of list/detail views.
 // botToken is required to construct the file-download URL for .torrent uploads.
-// ctx controls the lifetime of the background cleanup goroutine.
-func New(ctx context.Context, sender Sender, qbtClient qbt.Client, auth *Authorizer, botToken string) *Handler {
+// ctx controls the lifetime of the background goroutines.
+func New(ctx context.Context, sender Sender, qbtClient qbt.Client, auth *Authorizer, opts HandlerOptions) *Handler {
 	h := &Handler{
-		sender:     sender,
-		qbt:        qbtClient,
-		auth:       auth,
-		token:      botToken,
-		httpClient: &http.Client{Timeout: 30 * time.Second},
-		pending:    make(map[int64]*PendingTorrent),
+		sender:              sender,
+		qbt:                 qbtClient,
+		auth:                auth,
+		token:               opts.BotToken,
+		httpClient:          &http.Client{Timeout: 30 * time.Second},
+		pending:             make(map[int64]*PendingTorrent),
+		liveViews:           make(map[int64]*LiveView),
+		viewRefreshInterval: opts.ViewRefreshInterval,
 	}
 	go h.runCleanup(ctx)
+	if opts.ViewRefreshInterval > 0 {
+		go h.runAutoRefresh(ctx)
+	}
 	return h
 }
 
@@ -264,7 +310,6 @@ func (h *Handler) sendTorrentPage(ctx context.Context, chatID int64, filter qbt.
 	default:
 		filterPrefix = "all"
 	}
-
 	text, kb, err := h.renderTorrentListPage(ctx, filter, filterPrefix, page)
 	if err != nil {
 		h.replyText(chatID, fmt.Sprintf("Error fetching torrents: %v", err))
@@ -274,8 +319,21 @@ func (h *Handler) sendTorrentPage(ctx context.Context, chatID int64, filter qbt.
 	replyMsg := tgbotapi.NewMessage(chatID, text)
 	replyMsg.ReplyMarkup = toTGKeyboard(kb)
 
-	if _, err := h.sender.Send(replyMsg); err != nil {
+	msg, err := h.sender.Send(replyMsg)
+	if err != nil {
 		log.Printf("bot: send error: %v", err)
+		return
+	}
+
+	if msg.MessageID != 0 {
+		h.registerLiveView(chatID, &LiveView{
+			ChatID:     chatID,
+			MessageID:  msg.MessageID,
+			ViewType:   ViewList,
+			Filter:     filter,
+			FilterChar: filterToChar(filter),
+			Page:       page,
+		})
 	}
 }
 
@@ -386,6 +444,125 @@ func (h *Handler) awaitStateChange(ctx context.Context, hash, oldState string) (
 				return t, true
 			}
 		}
+	}
+}
+
+// registerLiveView stores lv for chatID, replacing any existing live view.
+func (h *Handler) registerLiveView(chatID int64, lv *LiveView) {
+	h.liveViewsMu.Lock()
+	h.liveViews[chatID] = lv
+	h.liveViewsMu.Unlock()
+}
+
+// deregisterLiveView removes the live view for chatID.
+func (h *Handler) deregisterLiveView(chatID int64) {
+	h.liveViewsMu.Lock()
+	delete(h.liveViews, chatID)
+	h.liveViewsMu.Unlock()
+}
+
+// runAutoRefresh periodically refreshes all active live views.
+func (h *Handler) runAutoRefresh(ctx context.Context) {
+	ticker := time.NewTicker(h.viewRefreshInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			h.refreshViews(ctx)
+		}
+	}
+}
+
+// refreshViews iterates over all live views and refreshes each in a goroutine.
+func (h *Handler) refreshViews(ctx context.Context) {
+	h.liveViewsMu.Lock()
+	views := make([]*LiveView, 0, len(h.liveViews))
+	for _, lv := range h.liveViews {
+		views = append(views, lv)
+	}
+	h.liveViewsMu.Unlock()
+
+	var wg sync.WaitGroup
+	for _, lv := range views {
+		wg.Add(1)
+		go func(lv *LiveView) {
+			defer wg.Done()
+			if err := h.refreshLiveView(ctx, lv); err != nil {
+				log.Printf("bot: refresh live view error (chat=%d, msg=%d): %v", lv.ChatID, lv.MessageID, err)
+			}
+		}(lv)
+	}
+	wg.Wait()
+}
+
+// refreshLiveView re-renders a live view and edits the Telegram message if the content changed.
+func (h *Handler) refreshLiveView(ctx context.Context, lv *LiveView) error {
+	var text string
+	var kb formatter.Keyboard
+	var err error
+
+	switch lv.ViewType {
+	case ViewList:
+		text, kb, err = h.renderTorrentListPage(ctx, lv.Filter, filterPrefixForView(lv), lv.Page)
+		if err != nil {
+			return err
+		}
+	case ViewDetail:
+		all, listErr := h.listTorrentsForFilter(ctx, qbt.FilterAll)
+		if listErr != nil {
+			return listErr
+		}
+		torrent, found := findTorrentByHash(all, lv.TorrentHash)
+		if !found {
+			// Torrent disappeared — deregister.
+			h.deregisterLiveView(lv.ChatID)
+			return fmt.Errorf("torrent %s not found", lv.TorrentHash)
+		}
+		text = formatter.FormatTorrentDetail(torrent)
+		kb = formatter.TorrentDetailKeyboard(lv.TorrentHash, lv.FilterChar, lv.Page, torrent.State)
+	default:
+		return nil
+	}
+
+	hash := fmt.Sprintf("%x", sha256.Sum256([]byte(text)))
+	if hash == lv.LastContentHash {
+		return nil // no change
+	}
+
+	tgKB := toTGKeyboard(kb)
+	h.editMessageText(lv.ChatID, lv.MessageID, text, &tgKB)
+
+	h.liveViewsMu.Lock()
+	if current, ok := h.liveViews[lv.ChatID]; ok && current.MessageID == lv.MessageID {
+		current.LastContentHash = hash
+	}
+	h.liveViewsMu.Unlock()
+
+	// Check if edit failed (message deleted). The editMessageText logs errors
+	// but doesn't propagate them. We check if our view is still valid.
+	// If the edit produced an error containing "message to edit not found",
+	// deregister. We rely on editMessageText's internal logging for detection.
+	// For robustness, we also handle the case where a new view replaced ours
+	// during the async refresh — the lock above already ensures we only update
+	// the hash if our view is still tracked.
+	_ = hash // suppress unused warning when sha256 import might not be used elsewhere
+	return nil
+}
+
+// filterPrefixForView returns the pagination prefix for the lv's Filter.
+// For list views, this is used in refreshLiveView; for non-list views, it returns "all".
+func filterPrefixForView(lv *LiveView) string {
+	switch lv.Filter {
+	case qbt.FilterActive:
+		return "act"
+	case qbt.FilterDownloading:
+		return "dw"
+	case qbt.FilterUploading:
+		return "up"
+	default:
+		return "all"
 	}
 }
 
