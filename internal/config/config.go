@@ -31,6 +31,11 @@ type Config struct {
 	// PollInterval controls how often the completion poller checks for finished
 	// torrents (POLL_INTERVAL, default "30s").
 	PollInterval time.Duration
+
+	// ViewRefreshInterval controls the refresh interval for interactive views
+	// such as torrent file lists and detailed torrent info (VIEW_REFRESH_INTERVAL,
+	// default "5s").
+	ViewRefreshInterval time.Duration
 }
 
 // Load reads configuration from environment variables, validates all required
@@ -72,13 +77,19 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	viewRefreshInterval, err := parseViewRefreshInterval(os.Getenv("VIEW_REFRESH_INTERVAL"))
+	if err != nil {
+		return Config{}, err
+	}
+
 	return Config{
-		TelegramToken: token,
-		AllowedUsers:  allowedUsers,
-		QBTBaseURL:    qbtURL,
-		QBTUsername:   qbtUsername,
-		QBTPassword:   qbtPassword,
-		PollInterval:  pollInterval,
+		TelegramToken:       token,
+		AllowedUsers:        allowedUsers,
+		QBTBaseURL:          qbtURL,
+		QBTUsername:         qbtUsername,
+		QBTPassword:         qbtPassword,
+		PollInterval:        pollInterval,
+		ViewRefreshInterval: viewRefreshInterval,
 	}, nil
 }
 
@@ -130,6 +141,23 @@ func parsePollInterval(raw string) (time.Duration, error) {
 	d, err := time.ParseDuration(raw)
 	if err != nil {
 		return 0, fmt.Errorf("invalid POLL_INTERVAL %q: %w", raw, err)
+	}
+
+	return d, nil
+}
+
+// parseViewRefreshInterval parses a duration string for VIEW_REFRESH_INTERVAL.
+// An empty string returns the default of 5 seconds.
+func parseViewRefreshInterval(raw string) (time.Duration, error) {
+	const defaultInterval = 5 * time.Second
+
+	if raw == "" {
+		return defaultInterval, nil
+	}
+
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, fmt.Errorf("invalid VIEW_REFRESH_INTERVAL %q: %w", raw, err)
 	}
 
 	return d, nil

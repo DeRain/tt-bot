@@ -251,7 +251,7 @@ func TestHandler_UnauthorizedUser(t *testing.T) {
 	sender := &mockSender{}
 	qbtClient := &mockQBTClient{}
 	auth := NewAuthorizer([]int64{999}) // user 1 is NOT allowed
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	update := newTestMessage(1, 1, "hello")
 	h.HandleUpdate(context.Background(), update)
@@ -265,7 +265,7 @@ func TestHandler_HelpCommand(t *testing.T) {
 	sender := &mockSender{}
 	qbtClient := &mockQBTClient{}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	update := newCommandUpdate(1, 1, "help")
 	h.HandleUpdate(context.Background(), update)
@@ -279,7 +279,7 @@ func TestHandler_StartCommand(t *testing.T) {
 	sender := &mockSender{}
 	qbtClient := &mockQBTClient{}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	update := newCommandUpdate(1, 1, "start")
 	h.HandleUpdate(context.Background(), update)
@@ -293,7 +293,7 @@ func TestHandler_ListCommand_NoTorrents(t *testing.T) {
 	sender := &mockSender{}
 	qbtClient := &mockQBTClient{torrents: []qbt.Torrent{}}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	update := newCommandUpdate(1, 1, "list")
 	h.HandleUpdate(context.Background(), update)
@@ -311,7 +311,7 @@ func TestHandler_ListCommand_WithTorrents(t *testing.T) {
 		},
 	}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	update := newCommandUpdate(1, 1, "list")
 	h.HandleUpdate(context.Background(), update)
@@ -327,7 +327,7 @@ func TestHandler_MagnetLink_StoresPendingAndShowsCategories(t *testing.T) {
 		categories: []qbt.Category{{Name: "Movies"}, {Name: "TV"}},
 	}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	magnet := "magnet:?xt=urn:btih:abc123&dn=test"
 	update := newTestMessage(1, 1, magnet)
@@ -364,7 +364,7 @@ func TestHandler_DownloadingCommand_ShowsOnlyIncomplete(t *testing.T) {
 		},
 	}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	update := newCommandUpdate(1, 1, "downloading")
 	h.HandleUpdate(context.Background(), update)
@@ -387,7 +387,7 @@ func TestHandler_DownloadingCommand_NoIncomplete_ShowsNoTorrents(t *testing.T) {
 		},
 	}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	update := newCommandUpdate(1, 1, "downloading")
 	h.HandleUpdate(context.Background(), update)
@@ -405,7 +405,7 @@ func TestHandler_DownloadingCommand_PausedIncomplete_Appears(t *testing.T) {
 		},
 	}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	update := newCommandUpdate(1, 1, "downloading")
 	h.HandleUpdate(context.Background(), update)
@@ -428,7 +428,7 @@ func TestHandler_UploadingCommand_ShowsOnlyCompleted(t *testing.T) {
 		},
 	}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	update := newCommandUpdate(1, 1, "uploading")
 	h.HandleUpdate(context.Background(), update)
@@ -451,7 +451,7 @@ func TestHandler_UploadingCommand_NoCompleted_ShowsNoTorrents(t *testing.T) {
 		},
 	}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	update := newCommandUpdate(1, 1, "uploading")
 	h.HandleUpdate(context.Background(), update)
@@ -469,7 +469,7 @@ func TestHandler_UploadingCommand_PausedUP_Excluded(t *testing.T) {
 		},
 	}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	update := newCommandUpdate(1, 1, "uploading")
 	h.HandleUpdate(context.Background(), update)
@@ -492,7 +492,7 @@ func TestHandler_UploadingCommand_StalledUP_Appears(t *testing.T) {
 		},
 	}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	update := newCommandUpdate(1, 1, "uploading")
 	h.HandleUpdate(context.Background(), update)
@@ -528,7 +528,7 @@ func TestHandler_MagnetLink_MidText(t *testing.T) {
 		categories: []qbt.Category{{Name: "Movies"}},
 	}
 	auth := NewAuthorizer([]int64{1})
-	h := New(context.Background(), sender, qbtClient, auth, "test-token")
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	update := newTestMessage(1, 1, "here is my link magnet:?xt=urn:btih:deadbeef thanks")
 	h.HandleUpdate(context.Background(), update)
@@ -547,4 +547,289 @@ func TestHandler_MagnetLink_MidText(t *testing.T) {
 	if strings.Contains(pt.MagnetLink, " ") {
 		t.Errorf("magnet link should not contain spaces: %q", pt.MagnetLink)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Auto-Refresh Tests
+// ---------------------------------------------------------------------------
+
+func TestFilterPrefixForView(t *testing.T) {
+	tests := []struct {
+		filter   qbt.TorrentFilter
+		expected string
+	}{
+		{qbt.FilterAll, "all"},
+		{qbt.FilterActive, "act"},
+		{qbt.FilterDownloading, "dw"},
+		{qbt.FilterUploading, "up"},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.filter), func(t *testing.T) {
+			lv := &LiveView{Filter: tt.filter}
+			if got := filterPrefixForView(lv); got != tt.expected {
+				t.Errorf("filterPrefixForView(%s) = %q, want %q", tt.filter, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestLiveViewRegisterDeregister(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	chatID := int64(42)
+	lv := &LiveView{
+		ChatID:    chatID,
+		MessageID: 100,
+		ViewType:  ViewList,
+		Filter:    qbt.FilterAll,
+		Page:      1,
+	}
+
+	// Register.
+	h.registerLiveView(chatID, lv)
+
+	h.liveViewsMu.Lock()
+	if got, ok := h.liveViews[chatID]; !ok || got != lv {
+		h.liveViewsMu.Unlock()
+		t.Fatal("expected live view to be registered")
+	}
+	h.liveViewsMu.Unlock()
+
+	// Register another — replaces.
+	lv2 := &LiveView{ChatID: chatID, MessageID: 200, ViewType: ViewDetail}
+	h.registerLiveView(chatID, lv2)
+
+	h.liveViewsMu.Lock()
+	if got := h.liveViews[chatID]; got != lv2 {
+		h.liveViewsMu.Unlock()
+		t.Fatal("expected live view to be replaced")
+	}
+	h.liveViewsMu.Unlock()
+
+	// Deregister.
+	h.deregisterLiveView(chatID)
+
+	h.liveViewsMu.Lock()
+	if _, ok := h.liveViews[chatID]; ok {
+		h.liveViewsMu.Unlock()
+		t.Fatal("expected live view to be deregistered")
+	}
+	h.liveViewsMu.Unlock()
+
+	// Deregister non-existent is a no-op.
+	h.deregisterLiveView(chatID)
+}
+
+func TestRefreshLiveView_ListView_Changed(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{
+		torrents: []qbt.Torrent{
+			{Hash: "a", Name: "Torrent A", Progress: 0.5, DLSpeed: 1024, State: "downloading"},
+		},
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	chatID := int64(1)
+	lv := &LiveView{
+		ChatID:    chatID,
+		MessageID: 100,
+		ViewType:  ViewList,
+		Filter:    qbt.FilterAll,
+		Page:      1,
+		// LastContentHash empty → will trigger edit.
+	}
+	h.registerLiveView(chatID, lv)
+
+	err := h.refreshLiveView(context.Background(), lv)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should have called Request (editMessageText).
+	if !sender.hasRequest() {
+		t.Fatal("expected editMessageText to be called via Request")
+	}
+
+	// LastContentHash should be updated.
+	if lv.LastContentHash == "" {
+		t.Fatal("expected LastContentHash to be updated")
+	}
+}
+
+func TestRefreshLiveView_ListView_Unchanged(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{
+		torrents: []qbt.Torrent{
+			{Hash: "a", Name: "Torrent A", Progress: 0.5, DLSpeed: 1024, State: "downloading"},
+		},
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	chatID := int64(1)
+	lv := &LiveView{
+		ChatID:    chatID,
+		MessageID: 100,
+		ViewType:  ViewList,
+		Filter:    qbt.FilterAll,
+		Page:      1,
+	}
+	h.registerLiveView(chatID, lv)
+
+	// First refresh — sets LastContentHash.
+	err := h.refreshLiveView(context.Background(), lv)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	hashAfterFirst := lv.LastContentHash
+	sender.reset()
+
+	// Second refresh — should NOT edit (hash matches).
+	err = h.refreshLiveView(context.Background(), lv)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if sender.hasRequest() {
+		t.Fatal("expected no edit on unchanged content")
+	}
+	if lv.LastContentHash != hashAfterFirst {
+		t.Fatal("expected LastContentHash unchanged")
+	}
+}
+
+func TestRefreshLiveView_DetailView_Found(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{
+		torrents: []qbt.Torrent{
+			{Hash: "abc123", Name: "Movie", Progress: 0.8, DLSpeed: 2048, State: "downloading"},
+		},
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	chatID := int64(1)
+	lv := &LiveView{
+		ChatID:      chatID,
+		MessageID:   100,
+		ViewType:    ViewDetail,
+		TorrentHash: "abc123",
+		FilterChar:  "a",
+		Page:        1,
+	}
+	h.registerLiveView(chatID, lv)
+
+	err := h.refreshLiveView(context.Background(), lv)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !sender.hasRequest() {
+		t.Fatal("expected editMessageText for detail view")
+	}
+}
+
+func TestRefreshLiveView_DetailView_NotFound(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{
+		torrents: []qbt.Torrent{},
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	chatID := int64(1)
+	h.registerLiveView(chatID, &LiveView{
+		ChatID:      chatID,
+		MessageID:   100,
+		ViewType:    ViewDetail,
+		TorrentHash: "missing",
+	})
+
+	err := h.refreshLiveView(context.Background(), h.liveViews[chatID])
+	if err == nil {
+		t.Fatal("expected error for missing torrent")
+	}
+
+	// Should have deregistered the view.
+	h.liveViewsMu.Lock()
+	_, ok := h.liveViews[chatID]
+	h.liveViewsMu.Unlock()
+	if ok {
+		t.Fatal("expected live view to be deregistered on missing torrent")
+	}
+}
+
+func TestRefreshLiveView_DefaultViewType(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	lv := &LiveView{
+		ChatID:    1,
+		MessageID: 100,
+		ViewType:  ViewType("unknown"),
+	}
+
+	err := h.refreshLiveView(context.Background(), lv)
+	if err != nil {
+		t.Fatalf("unexpected error for unknown view type: %v", err)
+	}
+}
+
+func TestRefreshViews_MultipleViews(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{
+		torrents: []qbt.Torrent{
+			{Hash: "a", Name: "A", Progress: 0.5, State: "downloading"},
+			{Hash: "b", Name: "B", Progress: 1.0, State: "uploading"},
+		},
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	// Register two views.
+	h.registerLiveView(1, &LiveView{
+		ChatID:    1,
+		MessageID: 100,
+		ViewType:  ViewList,
+		Filter:    qbt.FilterAll,
+		Page:      1,
+	})
+	h.registerLiveView(2, &LiveView{
+		ChatID:      2,
+		MessageID:   200,
+		ViewType:    ViewDetail,
+		TorrentHash: "a",
+	})
+
+	h.refreshViews(context.Background())
+
+	// Both should have been refreshed.
+	if !sender.hasRequest() {
+		t.Fatal("expected Request calls for both views")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Mock sender helpers
+// ---------------------------------------------------------------------------
+
+func (m *mockSender) hasRequest() bool {
+	for _, msg := range m.sentMessages {
+		if _, ok := msg.(tgbotapi.EditMessageTextConfig); ok {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *mockSender) reset() {
+	m.sentMessages = nil
+	m.requestErr = nil
 }

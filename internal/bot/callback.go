@@ -239,6 +239,15 @@ func (h *Handler) handlePaginationCallback(
 	tgKB := toTGKeyboard(kb)
 	h.answerCallback(cq.ID, "")
 	h.editMessageText(chatID, messageID, text, &tgKB)
+
+	h.liveViewsMu.Lock()
+	if lv, ok := h.liveViews[chatID]; ok && lv.MessageID == messageID {
+		lv.Page = page
+		lv.Filter = filter
+		lv.FilterChar = filterToChar(filter)
+		lv.LastContentHash = "" // force refresh on next tick
+	}
+	h.liveViewsMu.Unlock()
 }
 
 // renderTorrentListPage fetches torrents and builds the list text and combined
@@ -335,6 +344,15 @@ func (h *Handler) handleSelectCallback(ctx context.Context, cq *tgbotapi.Callbac
 
 	h.answerCallback(cq.ID, "")
 	h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &kb)
+
+	h.registerLiveView(cq.Message.Chat.ID, &LiveView{
+		ChatID:      cq.Message.Chat.ID,
+		MessageID:   cq.Message.MessageID,
+		ViewType:    ViewDetail,
+		TorrentHash: hash,
+		FilterChar:  filterChar,
+		Page:        page,
+	})
 }
 
 // handlePauseCallback pauses a torrent and refreshes the detail view.
@@ -393,6 +411,15 @@ func (h *Handler) handleTorrentAction(ctx context.Context, cq *tgbotapi.Callback
 			text := formatter.FormatTorrentDetail(torrent)
 			kb := toTGKeyboard(formatter.TorrentDetailKeyboard(hash, filterChar, page, torrent.State))
 			h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &kb)
+
+			h.registerLiveView(cq.Message.Chat.ID, &LiveView{
+				ChatID:      cq.Message.Chat.ID,
+				MessageID:   cq.Message.MessageID,
+				ViewType:    ViewDetail,
+				TorrentHash: hash,
+				FilterChar:  filterChar,
+				Page:        page,
+			})
 		}
 		return
 	}
@@ -400,8 +427,17 @@ func (h *Handler) handleTorrentAction(ctx context.Context, cq *tgbotapi.Callback
 	text := formatter.FormatTorrentDetail(torrent)
 	kb := toTGKeyboard(formatter.TorrentDetailKeyboard(hash, filterChar, page, torrent.State))
 
-	h.answerCallback(cq.ID, actionText)
+	h.answerCallback(cq.ID, "")
 	h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &kb)
+
+	h.registerLiveView(cq.Message.Chat.ID, &LiveView{
+		ChatID:      cq.Message.Chat.ID,
+		MessageID:   cq.Message.MessageID,
+		ViewType:    ViewDetail,
+		TorrentHash: hash,
+		FilterChar:  filterChar,
+		Page:        page,
+	})
 }
 
 // handleBackCallback returns from the detail view to the torrent list.
@@ -435,9 +471,17 @@ func (h *Handler) handleBackCallback(ctx context.Context, cq *tgbotapi.CallbackQ
 	tgKB := toTGKeyboard(kb)
 	h.answerCallback(cq.ID, "")
 	h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &tgKB)
+
+	h.registerLiveView(cq.Message.Chat.ID, &LiveView{
+		ChatID:     cq.Message.Chat.ID,
+		MessageID:  cq.Message.MessageID,
+		ViewType:   ViewList,
+		Filter:     filter,
+		FilterChar: filterChar,
+		Page:       page,
+	})
 }
 
-// handleRemoveConfirmCallback shows the confirmation view when the Remove button is pressed.
 // It parses rm:<filterChar>:<page>:<hash>, fetches the torrent name, and renders
 // the confirmation message with RemoveConfirmKeyboard. No qBittorrent mutation occurs.
 func (h *Handler) handleRemoveConfirmCallback(ctx context.Context, cq *tgbotapi.CallbackQuery, data string) {
@@ -479,6 +523,8 @@ func (h *Handler) handleRemoveConfirmCallback(ctx context.Context, cq *tgbotapi.
 
 	h.answerCallback(cq.ID, "")
 	h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &kb)
+	// Confirmation view is not auto-refreshed — deregister any live view.
+	h.deregisterLiveView(cq.Message.Chat.ID)
 }
 
 // handleRemoveDeleteCallback handles both rd: (deleteFiles=false) and rf: (deleteFiles=true).
@@ -506,12 +552,22 @@ func (h *Handler) handleRemoveDeleteCallback(ctx context.Context, cq *tgbotapi.C
 	if listErr != nil {
 		h.answerCallback(cq.ID, "Removed.")
 		h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, "Removed.", nil)
+		h.deregisterLiveView(cq.Message.Chat.ID)
 		return
 	}
 
 	tgKB := toTGKeyboard(kb)
 	h.answerCallback(cq.ID, "Removed.")
 	h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &tgKB)
+
+	h.registerLiveView(cq.Message.Chat.ID, &LiveView{
+		ChatID:     cq.Message.Chat.ID,
+		MessageID:  cq.Message.MessageID,
+		ViewType:   ViewList,
+		Filter:     filter,
+		FilterChar: filterChar,
+		Page:       page,
+	})
 }
 
 // isValidFilePriority reports whether p is one of the four defined qBittorrent
@@ -872,6 +928,15 @@ func (h *Handler) handleRemoveCancelCallback(ctx context.Context, cq *tgbotapi.C
 		tgKB := toTGKeyboard(kb)
 		h.answerCallback(cq.ID, "Torrent not found.")
 		h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &tgKB)
+
+		h.registerLiveView(cq.Message.Chat.ID, &LiveView{
+			ChatID:     cq.Message.Chat.ID,
+			MessageID:  cq.Message.MessageID,
+			ViewType:   ViewList,
+			Filter:     filter,
+			FilterChar: filterChar,
+			Page:       page,
+		})
 		return
 	}
 
@@ -880,4 +945,13 @@ func (h *Handler) handleRemoveCancelCallback(ctx context.Context, cq *tgbotapi.C
 
 	h.answerCallback(cq.ID, "")
 	h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &kb)
+
+	h.registerLiveView(cq.Message.Chat.ID, &LiveView{
+		ChatID:      cq.Message.Chat.ID,
+		MessageID:   cq.Message.MessageID,
+		ViewType:    ViewDetail,
+		TorrentHash: hash,
+		FilterChar:  filterChar,
+		Page:        page,
+	})
 }

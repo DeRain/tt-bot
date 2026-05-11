@@ -46,6 +46,9 @@ func TestLoad_AllRequiredFields(t *testing.T) {
 	if cfg.PollInterval != 30*time.Second {
 		t.Errorf("PollInterval = %v, want 30s", cfg.PollInterval)
 	}
+	if cfg.ViewRefreshInterval != 5*time.Second {
+		t.Errorf("ViewRefreshInterval = %v, want 5s", cfg.ViewRefreshInterval)
+	}
 }
 
 func TestLoad_MissingTelegramToken(t *testing.T) {
@@ -122,5 +125,41 @@ func TestLoad_EmptyAllowedUsers(t *testing.T) {
 	_, err := Load()
 	if err == nil {
 		t.Fatal("expected error for empty TELEGRAM_ALLOWED_USERS, got nil")
+	}
+}
+
+func TestLoad_DefaultViewRefreshInterval(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("VIEW_REFRESH_INTERVAL", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if cfg.ViewRefreshInterval != 5*time.Second {
+		t.Errorf("ViewRefreshInterval = %v, want 5s (default)", cfg.ViewRefreshInterval)
+	}
+}
+
+func TestLoad_CustomViewRefreshInterval(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("VIEW_REFRESH_INTERVAL", "10s")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if cfg.ViewRefreshInterval != 10*time.Second {
+		t.Errorf("ViewRefreshInterval = %v, want 10s", cfg.ViewRefreshInterval)
+	}
+}
+
+func TestLoad_InvalidViewRefreshInterval(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("VIEW_REFRESH_INTERVAL", "not-a-duration")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error for invalid VIEW_REFRESH_INTERVAL, got nil")
 	}
 }
