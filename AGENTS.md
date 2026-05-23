@@ -1,5 +1,9 @@
 # Repository Guidelines
 
+**Generated:** 2026-05-23
+**Commit:** 5278f56
+**Branch:** main
+
 ## Project
 
 tt-bot is a stateless Go Telegram bot for managing qBittorrent downloads. Whitelisted Telegram users can add torrents (magnet links and .torrent files), pick categories via inline keyboards, list torrents with pagination, and receive completion notifications.
@@ -37,7 +41,8 @@ internal/poller/          → background goroutine polling for completed torrent
 | `make lint` | `golangci-lint run` |
 | `make test` | Unit tests with coverage (`go test ./... -short -cover`) |
 | `make test-integration` | Integration + E2E tests in Docker (spins up qBittorrent, runs all `Integration\|E2E` tests, tears down) |
-| `make gate-all` | Full quality gate: build → lint → unit tests |
+| `make arch-check` | Validate architecture dependency rules (`arch-go.yml`) |
+| `make gate-all` | Full quality gate: build → lint → test → arch-check |
 | `make clean` | Remove coverage.out and bot binary |
 
 For local services, use `docker compose up --build` to run the bot with qBittorrent. For focused test runs, use commands such as `go test ./internal/qbt -run TestLogin -short -v`.
@@ -66,27 +71,21 @@ To change a protected file: create a feature doc (`docs/features/<id>/spec.md`),
 | `QBITTORRENT_USERNAME` | Yes | WebUI username |
 | `QBITTORRENT_PASSWORD` | Yes | WebUI password |
 | `POLL_INTERVAL` | No | Completion poll interval (default: `30s`) |
+| `VIEW_REFRESH_INTERVAL` | No | Live view auto-refresh interval (default: `5s`) |
 
 Copy `.env.example` to `.env` and keep secrets out of git.
 
-## Coding Style & Naming Conventions
+## Coding Style
 
 Follow standard Go formatting with tabs, `gofmt`, and `goimports`; do not hand-format files. Keep package names short and lowercase. Exported identifiers use `CamelCase`; unexported helpers use `camelCase`. Prefer table-driven tests and small interfaces such as `qbt.Client` or `bot.Sender`. Name tests in `_test.go` files with clear behavior-focused names like `TestHandleListUnauthorized`.
 
 ## Testing Guidelines
 
-Unit tests sit next to implementation files and should run with `go test ./... -short`. Integration coverage uses Docker and should validate real API behavior, not only mocks. Treat `make test-integration` as required before considering feature work complete. Keep coverage at or above the repository's 80% expectation.
+Unit tests run with `go test ./... -short`. Integration tests (`make test-integration`) are **mandatory** before marking any feature complete — mocks cannot catch API contract changes.
 
-When changing qBittorrent control flows, auth, or callback behavior, add or update integration coverage instead of relying only on mocked HTTP tests. Preserve the existing package-local test layout: `internal/<pkg>/*_test.go`.
+**Test types:** `_test.go` (unit, `-short`), `//go:build integration` (Docker+qBittorrent), `e2e_test.go` (bot flow).
 
-### Test Organization
-- `_test.go` without build tags: unit tests, run with `-short`, use `httptest.NewServer` or mock interfaces
-- `//go:build integration` tagged files: require real qBittorrent via Docker
-- `e2e_test.go`: end-to-end bot flow tests
-
-### Co-Change Pattern
-
-Never commit an implementation change without updating the corresponding test file:
+**Co-change pattern:** Never change implementation without updating tests:
 
 | Primary Change | Must Co-Change |
 |---------------|----------------|
@@ -95,21 +94,9 @@ Never commit an implementation change without updating the corresponding test fi
 | `qbt/http.go` | `qbt/http_test.go`, `qbt/client.go` |
 | `qbt/client.go` (interface) | `qbt/http.go` (impl), `qbt/http_test.go` |
 
-### Callback Data Encoding
+**Callback data:** max 64 bytes. Prefixes: `cat:<name>`, `pg:all:<N>`, `pg:act:<N>`, `sel:<hash>`, `rm:<hash>`, `noop`. Truncate at valid UTF-8 boundaries.
 
-Telegram limits callback_data to 64 bytes. Use short colon-delimited prefixes:
-- `cat:<name>`, `pg:all:<N>`, `pg:act:<N>`, `sel:<hash>`, `rm:<hash>`, `noop`
-
-Always truncate user-provided strings at valid UTF-8 boundaries, not raw byte offsets.
-
-### qBittorrent v5+ Endpoints
-
-qBittorrent v5+ renamed endpoints. Always use the current names:
-
-| Action | v4 (old, 404 on v5) | v5+ (current) |
-|--------|---------------------|---------------|
-| Pause/Stop | `/api/v2/torrents/pause` | `/api/v2/torrents/stop` |
-| Resume/Start | `/api/v2/torrents/resume` | `/api/v2/torrents/start` |
+**qBittorrent v5+:** use `/torrents/stop` and `/torrents/start`; v4 `/pause` and `/resume` return 404.
 
 ## Interface-Driven Design
 
@@ -140,21 +127,7 @@ Features are documented in `docs/features/<feature-id>/` with:
 
 ### Existing Features
 
-| Feature ID | Description | Docs |
-|------------|-------------|------|
-| auth | User authorization via Telegram ID whitelist | `docs/features/auth/` |
-| add-torrent | Add torrents via magnet links and .torrent files | `docs/features/add-torrent/` |
-| list-torrents | List all/active torrents with pagination | `docs/features/list-torrents/` |
-| completion-notifications | Background polling and completion alerts | `docs/features/completion-notifications/` |
-| config | Environment variable loading and validation | `docs/features/config/` |
-| set-commands | Register bot commands with Telegram on startup | `docs/features/set-commands/` |
-| downloading-list | List non-completed torrents | `docs/features/downloading-list/` |
-| uploading-list | List seeding/uploading torrents | `docs/features/uploading-list/` |
-| torrent-files | View and manage torrent file priorities | `docs/features/torrent-files/` |
-| torrent-detail-extra | Extended torrent info (ETA, ratio, seeds) | `docs/features/torrent-detail-extra/` |
-| torrent-remove | Safe torrent removal with confirmation | `docs/features/torrent-remove/` |
-| torrent-control | Start/stop/force-start/recheck operations | `docs/features/torrent-control/` |
-| status-emojis | Per-state emoji indicators in lists | `docs/features/status-emojis/` |
+See `docs/features/<feature-id>/` for each feature's spec, design, plan, traceability, and verification. Active features include: auth, add-torrent, list-torrents, completion-notifications, downloading-list, uploading-list, torrent-files, torrent-detail-extra, torrent-remove, torrent-control, status-emojis.
 
 ## Commit & Pull Request Guidelines
 
@@ -166,48 +139,16 @@ See `docs/pr-checklist.md` for the full PR template and validation rules.
 
 Use `main` as the base branch for PRs. Keep changes scoped to one feature or fix. Reviewers should be able to trace each code change back to the relevant feature docs.
 
-## Security & Configuration Tips
+## Security
 
 Never commit real bot tokens, Telegram user IDs that are not already intended for the repo, or qBittorrent credentials. If configuration changes affect deployment behavior, update `README.md` and the relevant feature docs in the same change.
 
 <!-- code-intel:start -->
-# Code Intelligence — CLI + LSP Tools
+# Code Intelligence
 
-Code navigation uses gopls (Go language server) and standard CLI tools. No indexing step required.
+LSP: gopls (Go). Key tools: `lsp_find_references`, `lsp_goto_definition`, `lsp_symbols`, `lsp_diagnostics`.
 
-## LSP Tools (in-session, preferred)
+CLI fallbacks: `gopls references/implementation/definition file:line:col`, `sg -p 'pattern' -l go`, `rg 'pattern'`, `fd 'pattern'`.
 
-| Action | Tool |
-|--------|------|
-| Find all references/callers | `lsp_find_references` |
-| Jump to definition | `lsp_goto_definition` |
-| Workspace symbol search | `lsp_symbols` |
-| Check diagnostics | `lsp_diagnostics` |
-| Rename safely | `lsp_rename` (use `lsp_prepare_rename` first) |
-
-## CLI Tools (when LSP unavailable or for scripts)
-
-| Action | Command |
-|--------|---------|
-| Call hierarchy (callers + callees) | `gopls call_hierarchy file:line:col` |
-| Find interface implementations | `gopls implementation file:line:col` |
-| Find references | `gopls references file:line:col` |
-| Jump to definition | `gopls definition file:line:col` |
-| Check for errors | `gopls check file.go` |
-| Structural search (AST) | `sg -p 'pattern' -l go` |
-| Content search (regex) | `rg 'pattern'` |
-| File search | `fd 'pattern'` |
-| Lint | `golangci-lint run` |
-
-## Workflows
-
-### Before Editing a Symbol
-1. `lsp_find_references` — see all callers
-2. If modifying an interface: `gopls implementation file:line:col`
-3. For deep impact: recurse `lsp_find_references` on each caller
-
-### Before Committing
-1. `lsp_diagnostics` on changed files
-2. `make gate-all` (build + lint + unit tests)
-3. `make test-integration` for API-facing changes
+Pre-commit: `lsp_diagnostics` → `make gate-all` → `make test-integration` (API changes).
 <!-- code-intel:end -->
