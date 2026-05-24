@@ -59,11 +59,11 @@ func newDownloadClient() *http.Client {
 	return &http.Client{
 		Timeout: 15 * time.Second,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 5 {
-				return fmt.Errorf("stopped after 5 redirects")
-			}
 			if strings.HasPrefix(req.URL.String(), "magnet:?") {
 				return &MagnetRedirectError{URI: req.URL.String()}
+			}
+			if len(via) >= 5 {
+				return fmt.Errorf("stopped after 5 redirects")
 			}
 			if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
 				return fmt.Errorf("redirect to unsupported scheme %q", req.URL.Scheme)
@@ -103,11 +103,11 @@ func downloadFile(ctx context.Context, client *http.Client, urlStr string, check
 	// Install redirect policy so callers that pass a bare client (e.g.
 	// httpsSrv.Client()) still get redirect safety.
 	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		if len(via) >= 5 {
-			return fmt.Errorf("stopped after 5 redirects")
-		}
 		if strings.HasPrefix(req.URL.String(), "magnet:?") {
 			return &MagnetRedirectError{URI: req.URL.String()}
+		}
+		if len(via) >= 5 {
+			return fmt.Errorf("stopped after 5 redirects")
 		}
 		if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
 			return fmt.Errorf("redirect to unsupported scheme %q", req.URL.Scheme)

@@ -750,3 +750,28 @@ func httpReq(urlStr string) *http.Request {
 	req, _ := http.NewRequest(http.MethodGet, urlStr, nil)
 	return req
 }
+
+func magnetRequest(uri string) *http.Request {
+	req, _ := http.NewRequest(http.MethodGet, uri, nil)
+	return req
+}
+
+func TestNewDownloadClient_MagnetRedirect_IgnoresRedirectCount(t *testing.T) {
+	// Magnet check must run before the redirect-count check.
+	// Even with via len=5 (which would normally trigger "stopped after
+	// 5 redirects"), a magnet target must still be extracted.
+	client := newDownloadClient()
+	req := magnetRequest("magnet:?xt=urn:btih:aaa")
+	via := make([]*http.Request, 5)
+	for i := range via {
+		via[i] = httpReq("http://origin.example/")
+	}
+	got := client.CheckRedirect(req, via)
+	if got == nil {
+		t.Fatal("expected MagnetRedirectError for magnet target after 5 redirects, got nil")
+	}
+	var magnetErr *MagnetRedirectError
+	if !errors.As(got, &magnetErr) {
+		t.Fatalf("expected *MagnetRedirectError (magnet check before redirect-count), got %T: %v", got, got)
+	}
+}
