@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/home/tt-bot/internal/formatter"
 	"github.com/home/tt-bot/internal/qbt"
@@ -304,6 +305,28 @@ func TestCategoryKeyboard_LongNameTruncated(t *testing.T) {
 	btn := kb[0][0]
 	if len(btn.CallbackData) > formatter.MaxCallbackData {
 		t.Errorf("callback data %d bytes exceeds %d limit", len(btn.CallbackData), formatter.MaxCallbackData)
+	}
+}
+
+func TestCategoryKeyboard_MultiByteUTF8Truncation(t *testing.T) {
+	// A category name that, after "cat:" prefix + truncation at 64 bytes,
+	// leaves an incomplete multi-byte UTF-8 sequence that must be stripped.
+	// "cat:" = 4 bytes. 59 ASCII 'x' = 59 bytes. "€" = 3 bytes (0xE2 0x82 0xAC).
+	// Total: 66 bytes. Truncation at 64 leaves 0xE2 (incomplete 3-byte start).
+	name := strings.Repeat("x", 59) + "€"
+	cats := []qbt.Category{{Name: name}}
+	kb := formatter.CategoryKeyboard(cats)
+
+	btn := kb[0][0]
+	if len(btn.CallbackData) > formatter.MaxCallbackData {
+		t.Errorf("callback data %d bytes exceeds %d limit", len(btn.CallbackData), formatter.MaxCallbackData)
+	}
+	if !utf8.Valid([]byte(btn.CallbackData)) {
+		t.Errorf("callback data is not valid UTF-8 after truncation: %q", btn.CallbackData)
+	}
+	// The incomplete 0xE2 byte should be stripped, leaving exactly 63 bytes.
+	if len(btn.CallbackData) != 63 {
+		t.Errorf("expected 63 bytes after multi-byte strip, got %d", len(btn.CallbackData))
 	}
 }
 
