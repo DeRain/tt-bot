@@ -1150,7 +1150,7 @@ func (h *Handler) handleSearchConfirmCallback(ctx context.Context, cq *tgbotapi.
 	if strings.HasPrefix(result.FileURL, "http://") || strings.HasPrefix(result.FileURL, "https://") {
 		// Download .torrent file from HTTP URL, then proceed through the
 		// same category → AddTorrentFile pipeline used for Telegram-uploaded files.
-		data, err := downloadSearchTorrentFn(ctx, newDownloadClient(), result.FileURL)
+		data, err := downloadUserTorrentFn(ctx, newDownloadClient(), result.FileURL)
 		if err != nil {
 			h.answerCallback(cq.ID, "")
 			_ = h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID,

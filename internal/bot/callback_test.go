@@ -1746,15 +1746,6 @@ func TestCallback_SearchConfirmCallback_MagnetUnchanged(t *testing.T) {
 }
 
 func TestCallback_SearchConfirmCallback_HTTPDownload_Success(t *testing.T) {
-	// TODO: This test needs a way to bypass SSRF check for local test servers.
-	// Consider making downloadSearchTorrent a package-level var that can be
-	// swapped in tests (e.g. var downloadSearchTorrentFn = downloadSearchTorrent).
-	//
-	// The real handleSearchConfirmCallback rejects 127.0.0.1 as a private IP,
-	// so this httptest server setup cannot currently reach the handler.
-	// Uncomment the HandleUpdate call once downloadSearchTorrentFn injection
-	// is available.
-
 	// Serve valid .torrent bytes.
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Minimal valid bencoded .torrent data.
@@ -1783,10 +1774,10 @@ func TestCallback_SearchConfirmCallback_HTTPDownload_Success(t *testing.T) {
 
 	update := newCallbackUpdate(1, "cb-sc", "sc:789:0")
 
-	origFn := downloadSearchTorrentFn
-	defer func() { downloadSearchTorrentFn = origFn }()
+	origFn := downloadUserTorrentFn
+	defer func() { downloadUserTorrentFn = origFn }()
 
-	downloadSearchTorrentFn = func(ctx context.Context, client *http.Client, url string) ([]byte, error) {
+	downloadUserTorrentFn = func(ctx context.Context, client *http.Client, url string) ([]byte, error) {
 		return downloadFileURL(ctx, ts.Client(), ts.URL+"/torrent")
 	}
 
@@ -1823,10 +1814,10 @@ func TestCallback_SearchConfirmCallback_HTTPDownload_Failure(t *testing.T) {
 
 	update := newCallbackUpdate(1, "cb-sc", "sc:101:0")
 
-	origFn := downloadSearchTorrentFn
-	defer func() { downloadSearchTorrentFn = origFn }()
+	origFn := downloadUserTorrentFn
+	defer func() { downloadUserTorrentFn = origFn }()
 
-	downloadSearchTorrentFn = func(ctx context.Context, client *http.Client, url string) ([]byte, error) {
+	downloadUserTorrentFn = func(ctx context.Context, client *http.Client, url string) ([]byte, error) {
 		return nil, fmt.Errorf("download failed: unexpected content-type \"text/html\"")
 	}
 
@@ -1841,15 +1832,18 @@ func TestCallback_SearchConfirmCallback_HTTPDownload_Failure(t *testing.T) {
 	}
 }
 
-func TestCallback_SearchConfirmCallback_HTTPDownload_SSRFReject(t *testing.T) {
-	// TODO: Needs downloadSearchTorrentFn injection to test.
+func TestCallback_SearchConfirmCallback_HTTPDownload_PrivateIPAllowed(t *testing.T) {
+	// Verify that private IP URLs (e.g. 192.168.1.130) are now
+	// allowed for user-initiated search downloads — no SSRF check.
 	sender := &mockSender{}
-	qbtClient := &mockQBTClient{}
+	qbtClient := &mockQBTClient{
+		categories: []qbt.Category{{Name: "Movies"}},
+	}
 	auth := NewAuthorizer([]int64{1})
 	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	results := []qbt.SearchResult{
-		{FileName: "Malicious", FileSize: 100, NbSeeders: 1, FileURL: "http://10.0.0.1/torrent"},
+		{FileName: "Local Torrent", FileSize: 100, NbSeeders: 1, FileURL: "http://192.168.1.130/torrent"},
 	}
 	h.storeSearch(1, &SearchState{
 		ChatID:    1,
@@ -1861,17 +1855,22 @@ func TestCallback_SearchConfirmCallback_HTTPDownload_SSRFReject(t *testing.T) {
 
 	update := newCallbackUpdate(1, "cb-sc", "sc:202:0")
 
-	origFn := downloadSearchTorrentFn
-	defer func() { downloadSearchTorrentFn = origFn }()
+	origFn := downloadUserTorrentFn
+	defer func() { downloadUserTorrentFn = origFn }()
 
-	downloadSearchTorrentFn = func(ctx context.Context, client *http.Client, url string) ([]byte, error) {
-		return nil, fmt.Errorf("unsafe hostname: host %q is private", "10.0.0.1")
+	downloadUserTorrentFn = func(ctx context.Context, client *http.Client, url string) ([]byte, error) {
+		// Simulate successful download from private IP.
+		return []byte("fake-torrent-data"), nil
 	}
 
 	h.HandleUpdate(context.Background(), update)
 
-	if !sender.hasEditText("Failed to download torrent") {
-		t.Fatalf("expected download failure error, got edits: %v", sender.editTexts())
+	if !sender.hasText("Select category for this torrent:") {
+		t.Fatalf("expected category prompt (private IP should be allowed), got: %v", sender.sentTexts())
+	}
+	pending := h.takePending(1)
+	if pending == nil || len(pending.FileData) == 0 || pending.FileName != "Local Torrent.torrent" {
+		t.Fatalf("expected pending file download from private IP, got: %v", pending)
 	}
 }
 
