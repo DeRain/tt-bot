@@ -31,6 +31,9 @@ jobs:
       - name: Architecture Check
         run: make arch-check
 
+      - name: Coverage Check
+        run: make check-coverage
+
   integration:
     runs-on: ubuntu-latest
     needs: gate
