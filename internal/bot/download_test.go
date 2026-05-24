@@ -9,8 +9,11 @@ package bot
 import (
 	"bytes"
 	"context"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -231,6 +234,8 @@ func TestDownloadSearchTorrent_TooManyRedirects(t *testing.T) {
 	_, err := downloadSearchTorrent(context.Background(), client, srv.URL)
 	if err == nil {
 		t.Error("expected error for redirect chain of 6, got nil")
+	} else if !strings.Contains(err.Error(), "redirect") && !strings.Contains(err.Error(), "stopped after") {
+		t.Errorf("expected redirect limit error, got: %v", err)
 	}
 }
 
@@ -268,6 +273,18 @@ func TestDownloadSearchTorrent_UnsupportedScheme(t *testing.T) {
 	_, err := downloadSearchTorrent(context.Background(), client, "ftp://example.com/torrent")
 	if err == nil {
 		t.Error("expected error for ftp:// scheme, got nil")
+	} else if !strings.Contains(err.Error(), "unsupported scheme") {
+		t.Errorf("expected 'unsupported scheme' error, got: %v", err)
+	}
+}
+
+func TestDownloadSearchTorrent_CanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	client := &http.Client{}
+	_, err := downloadSearchTorrent(ctx, client, "http://example.com/torrent")
+	if err == nil {
+		t.Error("expected error for canceled context, got nil")
 	}
 }
 
@@ -307,5 +324,312 @@ func TestNewDownloadClient_RedirectPolicy(t *testing.T) {
 	// 5 prior redirects → must be rejected (this is the 6th redirect attempt).
 	if err := client.CheckRedirect(req, makeVia(5)); err == nil {
 		t.Error("expected error for 5 prior redirects (6th redirect), got nil")
+	}
+}
+
+// =========================================================================
+// HTTPS success path for downloadSearchTorrent
+// =========================================================================
+
+func TestDownloadSearchTorrent_HttpsSuccess(t *testing.T) {
+	torrentData := []byte("d8:announce...")
+
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/x-bittorrent")
+		_, _ = w.Write(torrentData)
+	}))
+	defer srv.Close()
+
+	client := srv.Client()
+	data, err := downloadSearchTorrent(context.Background(), client, srv.URL)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !bytes.Equal(data, torrentData) {
+		t.Errorf("got %q, want %q", data, torrentData)
+	}
+}
+
+// =========================================================================
+// newDownloadClient CheckRedirect — scheme downgrade and boundary
+// =========================================================================
+
+func TestNewDownloadClient_DowngradeRejected(t *testing.T) {
+	client := newDownloadClient()
+
+	httpsReq, err := http.NewRequest(http.MethodGet, "https://example.com/initial", nil)
+	if err != nil {
+		t.Fatalf("building https request: %v", err)
+	}
+	httpReq, err := http.NewRequest(http.MethodGet, "http://example.com/redirect", nil)
+	if err != nil {
+		t.Fatalf("building http request: %v", err)
+	}
+
+	// HTTPS→HTTP downgrade → must be rejected.
+	via := []*http.Request{httpsReq}
+	err = client.CheckRedirect(httpReq, via)
+	if err == nil {
+		t.Error("expected error for HTTPS→HTTP downgrade, got nil")
+	}
+}
+
+func TestNewDownloadClient_DowngradeApproved(t *testing.T) {
+	client := newDownloadClient()
+
+	httpsReq1, err := http.NewRequest(http.MethodGet, "https://example.com/initial", nil)
+	if err != nil {
+		t.Fatalf("building first https request: %v", err)
+	}
+	httpsReq2, err := http.NewRequest(http.MethodGet, "https://example.com/redirect", nil)
+	if err != nil {
+		t.Fatalf("building second https request: %v", err)
+	}
+
+	// HTTPS→HTTPS same-scheme → must be allowed.
+	via := []*http.Request{httpsReq1}
+	err = client.CheckRedirect(httpsReq2, via)
+	if err != nil {
+		t.Errorf("expected nil for HTTPS→HTTPS redirect, got: %v", err)
+	}
+}
+
+func TestNewDownloadClient_HttpToHttpOk(t *testing.T) {
+	client := newDownloadClient()
+
+	httpReq1, err := http.NewRequest(http.MethodGet, "http://example.com/initial", nil)
+	if err != nil {
+		t.Fatalf("building first http request: %v", err)
+	}
+	httpReq2, err := http.NewRequest(http.MethodGet, "http://example.com/redirect", nil)
+	if err != nil {
+		t.Fatalf("building second http request: %v", err)
+	}
+
+	// HTTP→HTTP same-scheme → must be allowed.
+	via := []*http.Request{httpReq1}
+	err = client.CheckRedirect(httpReq2, via)
+	if err != nil {
+		t.Errorf("expected nil for HTTP→HTTP redirect, got: %v", err)
+	}
+}
+
+// =========================================================================
+// downloadSearchTorrent — body read error via custom transport
+// =========================================================================
+
+// errorBodyReader returns a constant error on every Read call.
+type errorBodyReader struct {
+	read bool
+}
+
+func (r *errorBodyReader) Read(p []byte) (int, error) {
+	if r.read {
+		return 0, io.EOF
+	}
+	r.read = true
+	return 0, fmt.Errorf("simulated body read error")
+}
+
+func (r *errorBodyReader) Close() error { return nil }
+
+// errorBodyTransport returns a valid HTTP response whose body fails on read.
+type errorBodyTransport struct{}
+
+func (t *errorBodyTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type": []string{"application/x-bittorrent"},
+		},
+		Body: &errorBodyReader{},
+	}, nil
+}
+
+func TestDownloadSearchTorrent_BodyReadError(t *testing.T) {
+	client := &http.Client{
+		Transport: &errorBodyTransport{},
+	}
+	_, err := downloadSearchTorrent(context.Background(), client, "http://example.com/t")
+	if err == nil {
+		t.Error("expected body read error, got nil")
+	}
+}
+
+// =========================================================================
+// downloadSearchTorrent — maxSize boundary tests
+// =========================================================================
+
+func TestDownloadSearchTorrent_ExactMaxSize(t *testing.T) {
+	// maxSize = 10 * 1024 * 1024 = 10485760
+	const maxSize = 10 * 1024 * 1024
+	data := make([]byte, maxSize)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/x-bittorrent")
+		_, _ = w.Write(data)
+	}))
+	defer srv.Close()
+
+	client := srv.Client()
+	got, err := downloadSearchTorrent(context.Background(), client, srv.URL)
+	if err != nil {
+		t.Fatalf("expected success for %d bytes, got: %v", maxSize, err)
+	}
+	if len(got) != maxSize {
+		t.Errorf("got %d bytes, want %d", len(got), maxSize)
+	}
+}
+
+func TestDownloadSearchTorrent_JustOverMaxSize(t *testing.T) {
+	// maxSize = 10 * 1024 * 1024 = 10485760
+	const maxSize = 10 * 1024 * 1024
+	data := make([]byte, maxSize+1)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/x-bittorrent")
+		_, _ = w.Write(data)
+	}))
+	defer srv.Close()
+
+	client := srv.Client()
+	_, err := downloadSearchTorrent(context.Background(), client, srv.URL)
+	if err == nil {
+		t.Error("expected error for response exceeding maxSize, got nil")
+	}
+}
+
+// =========================================================================
+// downloadSearchTorrent — HTTPS→HTTPS redirect (no downgrade)
+// =========================================================================
+
+func TestDownloadSearchTorrent_HttpsToHttpsRedirect(t *testing.T) {
+	// TLS server that redirects to a final TLS endpoint.
+	var finalURL string
+	redirectSrv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, finalURL, http.StatusFound)
+	}))
+	defer redirectSrv.Close()
+
+	finalSrv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/x-bittorrent")
+		_, _ = w.Write([]byte("d8:announce..."))
+	}))
+	defer finalSrv.Close()
+
+	finalURL = finalSrv.URL
+
+	client := redirectSrv.Client()
+	// Make the client trust both servers by using redirectSrv.Client() which
+	// trusts all TLS certs.
+	client.Timeout = 10 * time.Second
+
+	data, err := downloadSearchTorrent(context.Background(), client, redirectSrv.URL)
+	if err != nil {
+		t.Fatalf("unexpected error for HTTPS→HTTPS redirect: %v", err)
+	}
+	if len(data) == 0 {
+		t.Error("expected non-empty data from redirect chain")
+	}
+}
+
+// =========================================================================
+// newDownloadClient — CheckRedirect for redirect limit boundary
+// =========================================================================
+
+func TestNewDownloadClient_RedirectBoundary(t *testing.T) {
+	client := newDownloadClient()
+	req, err := http.NewRequest(http.MethodGet, "http://example.com", nil)
+	if err != nil {
+		t.Fatalf("building request: %v", err)
+	}
+
+	makeVia := func(n int) []*http.Request {
+		via := make([]*http.Request, n)
+		for i := range via {
+			via[i] = req
+		}
+		return via
+	}
+
+	// 5 prior redirects — should be rejected (this is the 6th).
+	if err := client.CheckRedirect(req, makeVia(5)); err == nil {
+		t.Error("expected error for 5 prior redirects, got nil")
+	}
+
+	// 4 prior redirects — should be allowed (this is the 5th).
+	if err := client.CheckRedirect(req, makeVia(4)); err != nil {
+		t.Errorf("expected nil for 4 prior redirects, got: %v", err)
+	}
+}
+
+func TestNewDownloadClient_ViaEmpty(t *testing.T) {
+	client := newDownloadClient()
+	req, _ := http.NewRequest(http.MethodGet, "https://example.com", nil)
+	err := client.CheckRedirect(req, []*http.Request{})
+	if err != nil {
+		t.Errorf("expected nil for empty via, got: %v", err)
+	}
+}
+
+// =========================================================================
+// downloadSearchTorrent — CheckRedirect boundary (via length rejection)
+// =========================================================================
+
+func TestDownloadSearchTorrent_TooManyRedirects_FiveExact(t *testing.T) {
+	// Exactly 5 redirects before final data. The redirect limit is 5
+	// (len(via) >= 5 rejects). The 6th request attempt is the 302 response
+	// from the 5th redirect, which is what CheckRedirect sees as via=5.
+	// If the boundary is widened to >5, the redirect follows and we get data.
+	var redirectCount int
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		redirectCount++
+		if redirectCount <= 5 {
+			http.Redirect(w, r, srv.URL, http.StatusFound)
+		} else {
+			w.Header().Set("Content-Type", "application/x-bittorrent")
+			_, _ = w.Write([]byte("d8:announce..."))
+		}
+	}))
+	defer srv.Close()
+
+	client := newDownloadClient()
+	// downloadSearchTorrent overrides CheckRedirect with its own, same limit.
+	_, err := downloadSearchTorrent(context.Background(), client, srv.URL)
+	if err == nil {
+		// If this succeeds, CheckRedirect allowed 5 prior redirects
+		// meaning the boundary was widened. That's wrong.
+		t.Error("expected error for 5 redirects, got nil (boundary widened?)")
+	}
+}
+
+// =========================================================================
+// downloadSearchTorrent — CheckRedirect via[0] scheme test
+// =========================================================================
+
+func TestDownloadSearchTorrent_HttpToHttpRedirect(t *testing.T) {
+	// HTTP→HTTP redirect: via[0].Scheme == "http", so the downgrade check
+	// should NOT trigger (it checks for https→http).
+	var redirectCount int
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		redirectCount++
+		if redirectCount == 1 {
+			http.Redirect(w, r, srv.URL+"/final", http.StatusFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/x-bittorrent")
+		_, _ = w.Write([]byte("d8:announce..."))
+	}))
+	defer srv.Close()
+
+	client := srv.Client()
+	data, err := downloadSearchTorrent(context.Background(), client, srv.URL)
+	if err != nil {
+		t.Fatalf("unexpected error for HTTP→HTTP redirect: %v", err)
+	}
+	if len(data) == 0 {
+		t.Error("expected non-empty data from redirect chain")
 	}
 }

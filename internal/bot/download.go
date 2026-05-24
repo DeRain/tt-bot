@@ -29,8 +29,6 @@ func isPublicHostname(host string) error {
 			return fmt.Errorf("host %q is link-local unicast", host)
 		case ip.IsUnspecified():
 			return fmt.Errorf("host %q is unspecified", host)
-		default:
-			return nil
 		}
 	}
 
@@ -76,10 +74,7 @@ func downloadSearchTorrent(ctx context.Context, client *http.Client, urlStr stri
 		return nil, fmt.Errorf("unsupported scheme %q", u.Scheme)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, nil)
-	if err != nil {
-		return nil, fmt.Errorf("build request: %w", err)
-	}
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, nil)
 
 	// Install redirect policy so callers that pass a bare client (e.g.
 	// httpsSrv.Client()) still get redirect safety.
@@ -87,7 +82,7 @@ func downloadSearchTorrent(ctx context.Context, client *http.Client, urlStr stri
 		if len(via) >= 5 {
 			return fmt.Errorf("stopped after 5 redirects")
 		}
-		if len(via) > 0 && via[0].URL.Scheme == "https" && req.URL.Scheme == "http" {
+		if via[0].URL.Scheme == "https" && req.URL.Scheme == "http" {
 			return fmt.Errorf("https to http downgrade")
 		}
 		return nil
