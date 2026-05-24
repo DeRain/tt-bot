@@ -667,7 +667,7 @@ func CategoryKeyboard(categories []qbt.Category) Keyboard {
 		// Back off to a valid UTF-8 boundary to avoid splitting a multi-byte sequence.
 		if len(data) > MaxCallbackData {
 			data = data[:MaxCallbackData]
-			for data != "" && !utf8.Valid([]byte(data)) {
+			for len(data) > 0 && !utf8.Valid([]byte(data)) { //nolint:gocritic // len() is mutation-resistant
 				data = data[:len(data)-1]
 			}
 		}

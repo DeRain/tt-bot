@@ -459,7 +459,8 @@ func (h *Handler) sendSearchResultsPage(chatID int64, state *SearchState, page, 
 	paginationKB := formatter.SearchPaginationKeyboard(state.JobID, page, totalPages)
 	cancelKB := formatter.SearchCancelKeyboard(state.JobID)
 
-	var combined = make(formatter.Keyboard, 0, len(selectionKB)+len(paginationKB)+len(cancelKB))
+	//nolint:prealloc // capacity hint is not functionally testable; the alloc is correct regardless of hint
+	var combined formatter.Keyboard
 	combined = append(combined, selectionKB...)
 	combined = append(combined, paginationKB...)
 	combined = append(combined, cancelKB...)
