@@ -18,6 +18,11 @@ import (
 	"time"
 )
 
+func init() {
+	// Allow loopback in tests — httptest servers bind to 127.0.0.1.
+	ssrfCheck = func(host string) error { return nil }
+}
+
 // =========================================================================
 // isPublicHostname tests
 // =========================================================================
@@ -285,6 +290,20 @@ func TestDownloadSearchTorrent_CanceledContext(t *testing.T) {
 	_, err := downloadSearchTorrent(ctx, client, "http://example.com/torrent")
 	if err == nil {
 		t.Error("expected error for canceled context, got nil")
+	}
+}
+
+func TestDownloadSearchTorrent_SSRFRejected(t *testing.T) {
+	orig := ssrfCheck
+	ssrfCheck = isPublicHostname
+	defer func() { ssrfCheck = orig }()
+
+	client := &http.Client{}
+	_, err := downloadSearchTorrent(context.Background(), client, "http://10.0.0.1/torrent")
+	if err == nil {
+		t.Error("expected SSRF rejection for private IP, got nil")
+	} else if !strings.Contains(err.Error(), "unsafe hostname") {
+		t.Errorf("expected 'unsafe hostname' error, got: %v", err)
 	}
 }
 

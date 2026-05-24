@@ -60,7 +60,7 @@ func newDownloadClient() *http.Client {
 
 // downloadSearchTorrent fetches raw bytes from url with safety checks:
 //   - only http/https schemes are accepted
-//   - hostname must resolve to a public IP (SSRF protection)
+//   - SSRF protection via isPublicHostname
 //   - response must be 200 OK
 //   - Content-Type must not be text/html
 //   - body is limited to 10 MB
@@ -72,6 +72,10 @@ func downloadSearchTorrent(ctx context.Context, client *http.Client, urlStr stri
 
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return nil, fmt.Errorf("unsupported scheme %q", u.Scheme)
+	}
+
+	if err := ssrfCheck(u.Hostname()); err != nil {
+		return nil, fmt.Errorf("unsafe hostname: %w", err)
 	}
 
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, nil)
@@ -99,7 +103,7 @@ func downloadSearchTorrent(ctx context.Context, client *http.Client, urlStr stri
 	}
 
 	ct := resp.Header.Get("Content-Type")
-	if strings.Contains(ct, "text/html") {
+	if strings.Contains(strings.ToLower(ct), "text/html") {
 		return nil, fmt.Errorf("unexpected content-type %q", ct)
 	}
 
@@ -118,3 +122,7 @@ func downloadSearchTorrent(ctx context.Context, client *http.Client, urlStr stri
 
 // downloadSearchTorrentFn is a package-level variable for test injection.
 var downloadSearchTorrentFn = downloadSearchTorrent
+
+// ssrfCheck is a package-level variable for test injection. Tests that use
+// httptest servers on loopback can set it to nil.
+var ssrfCheck = isPublicHostname
