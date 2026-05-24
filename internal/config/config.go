@@ -36,6 +36,11 @@ type Config struct {
 	// such as torrent file lists and detailed torrent info (VIEW_REFRESH_INTERVAL,
 	// default "5s").
 	ViewRefreshInterval time.Duration
+
+	// ViewTTL is the maximum lifetime of a live view before it is automatically
+	// deregistered (VIEW_TTL, default "5m"). After this duration elapses from
+	// registration, the view stops auto-refreshing.
+	ViewTTL time.Duration
 }
 
 // Load reads configuration from environment variables, validates all required
@@ -82,6 +87,11 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	viewTTL, err := parseViewTTL(os.Getenv("VIEW_TTL"))
+	if err != nil {
+		return Config{}, err
+	}
+
 	return Config{
 		TelegramToken:       token,
 		AllowedUsers:        allowedUsers,
@@ -90,6 +100,7 @@ func Load() (Config, error) {
 		QBTPassword:         qbtPassword,
 		PollInterval:        pollInterval,
 		ViewRefreshInterval: viewRefreshInterval,
+		ViewTTL:             viewTTL,
 	}, nil
 }
 
@@ -141,6 +152,23 @@ func parsePollInterval(raw string) (time.Duration, error) {
 	d, err := time.ParseDuration(raw)
 	if err != nil {
 		return 0, fmt.Errorf("invalid POLL_INTERVAL %q: %w", raw, err)
+	}
+
+	return d, nil
+}
+
+// parseViewTTL parses a duration string for VIEW_TTL. An empty string returns
+// the default of 5 minutes.
+func parseViewTTL(raw string) (time.Duration, error) {
+	const defaultTTL = 5 * time.Minute
+
+	if raw == "" {
+		return defaultTTL, nil
+	}
+
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, fmt.Errorf("invalid VIEW_TTL %q: %w", raw, err)
 	}
 
 	return d, nil

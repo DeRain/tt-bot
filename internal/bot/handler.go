@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -34,6 +35,10 @@ const (
 	searchResultsLimit = 100
 	searchTTL          = 10 * time.Minute
 	searchPromptTTL    = 5 * time.Minute
+
+	// maxConcurrentRefreshes limits the number of views refreshed in parallel
+	// per tick to prevent burst API calls when many live views are active.
+	maxConcurrentRefreshes = 5
 )
 
 // PendingTorrent holds a torrent that the user has sent but has not yet been
@@ -87,6 +92,10 @@ type LiveView struct {
 	TorrentHash string
 	// Change detection:
 	LastContentHash string
+	// Lifecycle tracking:
+	RegisteredAt  time.Time // immutable — set once in registerLiveView
+	NextRefreshAt time.Time // skip auto-refresh until this time (zero = active)
+	ErrorCount    int       // consecutive non-429 failures
 }
 
 type Handler struct {
@@ -103,6 +112,7 @@ type Handler struct {
 	searchMu      sync.Mutex
 
 	viewRefreshInterval time.Duration
+	viewTTL             time.Duration
 	liveViews           map[int64]*LiveView
 	liveViewsMu         sync.Mutex
 }
@@ -114,6 +124,9 @@ type HandlerOptions struct {
 	// ViewRefreshInterval controls how often list and detail views are auto-refreshed.
 	// A zero or negative value disables auto-refresh.
 	ViewRefreshInterval time.Duration
+	// ViewTTL is the maximum lifetime of a live view before auto-refresh stops.
+	// A zero value defaults to 5 minutes.
+	ViewTTL time.Duration
 }
 
 // New constructs a Handler and starts background goroutines for pending entry
@@ -132,6 +145,7 @@ func New(ctx context.Context, sender Sender, qbtClient qbt.Client, auth *Authori
 		searchPrompts:       make(map[int64]*SearchPrompt),
 		liveViews:           make(map[int64]*LiveView),
 		viewRefreshInterval: opts.ViewRefreshInterval,
+		viewTTL:             defaultViewTTL(opts.ViewTTL),
 	}
 	go h.runCleanup(ctx)
 	if opts.ViewRefreshInterval > 0 {
@@ -378,7 +392,7 @@ func (h *Handler) sendSearchResultsPage(chatID int64, state *SearchState, page i
 		return sent.MessageID
 	}
 
-	h.editMessageText(chatID, messageID, text, &tgKB)
+	_ = h.editMessageText(chatID, messageID, text, &tgKB)
 	return messageID
 }
 
@@ -625,16 +639,37 @@ func (h *Handler) takePending(chatID int64) *PendingTorrent {
 
 // editMessageText replaces the text of an existing inline message.
 // Uses Request instead of Send because Telegram returns bool, not Message.
-func (h *Handler) editMessageText(chatID int64, messageID int, text string, kb *tgbotapi.InlineKeyboardMarkup) {
+// On HTTP 429 (Too Many Requests), extracts Telegram's RetryAfter and applies
+// a cooldown to the owning LiveView so the auto-refresh loop skips this view
+// until the cooldown expires.
+func (h *Handler) editMessageText(chatID int64, messageID int, text string, kb *tgbotapi.InlineKeyboardMarkup) error {
 	edit := tgbotapi.NewEditMessageText(chatID, messageID, text)
 	if kb != nil {
 		edit.ReplyMarkup = kb
 	}
-	if _, err := h.sender.Request(edit); err != nil {
-		if !strings.Contains(err.Error(), "message is not modified") {
-			log.Printf("bot: edit message error: %v", err)
-		}
+	_, err := h.sender.Request(edit)
+	if err == nil {
+		return nil
 	}
+
+	if strings.Contains(err.Error(), "message is not modified") {
+		return nil
+	}
+
+	log.Printf("bot: edit message error: %v", err)
+
+	var tgErr tgbotapi.Error
+	if errors.As(err, &tgErr) && tgErr.Code == 429 && tgErr.RetryAfter > 0 {
+		h.liveViewsMu.Lock()
+		if lv, ok := h.liveViews[chatID]; ok && lv.MessageID == messageID {
+			lv.NextRefreshAt = time.Now().Add(time.Duration(tgErr.RetryAfter) * time.Second)
+			log.Printf("bot: rate-limited (chat=%d), pausing refreshes for %ds",
+				chatID, tgErr.RetryAfter)
+		}
+		h.liveViewsMu.Unlock()
+	}
+
+	return err
 }
 
 // answerCallback dismisses the loading spinner on a callback query button.
@@ -689,16 +724,21 @@ func (h *Handler) awaitStateChange(ctx context.Context, hash, oldState string) (
 
 // registerLiveView stores lv for chatID, replacing any existing live view.
 func (h *Handler) registerLiveView(chatID int64, lv *LiveView) {
+	lv.RegisteredAt = time.Now()
 	h.liveViewsMu.Lock()
 	h.liveViews[chatID] = lv
 	h.liveViewsMu.Unlock()
 }
 
-// deregisterLiveView removes the live view for chatID.
-func (h *Handler) deregisterLiveView(chatID int64) {
+// deregisterLiveView removes the live view for chatID if its MessageID
+// matches the expected value, preventing stale goroutines from deleting
+// views that have been replaced by newer registrations.
+func (h *Handler) deregisterLiveView(chatID int64, messageID int) {
 	h.liveViewsMu.Lock()
-	delete(h.liveViews, chatID)
-	h.liveViewsMu.Unlock()
+	defer h.liveViewsMu.Unlock()
+	if lv, ok := h.liveViews[chatID]; ok && lv.MessageID == messageID {
+		delete(h.liveViews, chatID)
+	}
 }
 
 // runAutoRefresh periodically refreshes all active live views.
@@ -715,7 +755,8 @@ func (h *Handler) runAutoRefresh(ctx context.Context) {
 	}
 }
 
-// refreshViews iterates over all live views and refreshes each in a goroutine.
+// refreshViews iterates over all live views and refreshes each in a goroutine,
+// capped at maxConcurrentRefreshes to prevent burst API calls on each tick.
 func (h *Handler) refreshViews(ctx context.Context) {
 	h.liveViewsMu.Lock()
 	views := make([]*LiveView, 0, len(h.liveViews))
@@ -725,10 +766,13 @@ func (h *Handler) refreshViews(ctx context.Context) {
 	h.liveViewsMu.Unlock()
 
 	var wg sync.WaitGroup
+	sem := make(chan struct{}, maxConcurrentRefreshes)
 	for _, lv := range views {
 		wg.Add(1)
 		go func(lv *LiveView) {
 			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
 			if err := h.refreshLiveView(ctx, lv); err != nil {
 				log.Printf("bot: refresh live view error (chat=%d, msg=%d): %v", lv.ChatID, lv.MessageID, err)
 			}
@@ -739,13 +783,34 @@ func (h *Handler) refreshViews(ctx context.Context) {
 
 // refreshLiveView re-renders a live view and edits the Telegram message if the content changed.
 func (h *Handler) refreshLiveView(ctx context.Context, lv *LiveView) error {
+	// Guard 1: hard deadline — deregister views older than viewTTL.
+	if time.Since(lv.RegisteredAt) >= h.viewTTL {
+		h.deregisterLiveView(lv.ChatID, lv.MessageID)
+		return nil
+	}
+
+	// Guard 2: rate-limit cooldown — skip if Telegram told us to wait.
+	if !lv.NextRefreshAt.IsZero() && time.Now().Before(lv.NextRefreshAt) {
+		return nil
+	}
+
+	// Snapshot mutable fields under the lock to prevent data races with
+	// concurrent callback handlers that update Page, Filter, FilterChar,
+	// and LastContentHash via liveViewsMu.
+	h.liveViewsMu.Lock()
+	filter := lv.Filter
+	filterChar := lv.FilterChar
+	page := lv.Page
+	lastHash := lv.LastContentHash
+	h.liveViewsMu.Unlock()
+
 	var text string
 	var kb formatter.Keyboard
 	var err error
 
 	switch lv.ViewType {
 	case ViewList:
-		text, kb, err = h.renderTorrentListPage(ctx, lv.Filter, filterPrefixForView(lv), lv.Page)
+		text, kb, err = h.renderTorrentListPage(ctx, filter, filterPrefixForView(lv), page)
 		if err != nil {
 			return err
 		}
@@ -756,39 +821,50 @@ func (h *Handler) refreshLiveView(ctx context.Context, lv *LiveView) error {
 		}
 		torrent, found := findTorrentByHash(all, lv.TorrentHash)
 		if !found {
-			// Torrent disappeared — deregister.
-			h.deregisterLiveView(lv.ChatID)
+			h.deregisterLiveView(lv.ChatID, lv.MessageID)
 			return fmt.Errorf("torrent %s not found", lv.TorrentHash)
 		}
 		text = formatter.FormatTorrentDetail(torrent)
-		kb = formatter.TorrentDetailKeyboard(lv.TorrentHash, lv.FilterChar, lv.Page, torrent.State)
+		kb = formatter.TorrentDetailKeyboard(lv.TorrentHash, filterChar, page, torrent.State)
 	default:
 		return nil
 	}
 
 	hash := fmt.Sprintf("%x", sha256.Sum256([]byte(text)))
-	if hash == lv.LastContentHash {
-		return nil // no change
+	if hash == lastHash {
+		return nil
 	}
 
 	tgKB := toTGKeyboard(kb)
-	h.editMessageText(lv.ChatID, lv.MessageID, text, &tgKB)
-
-	h.liveViewsMu.Lock()
-	if current, ok := h.liveViews[lv.ChatID]; ok && current.MessageID == lv.MessageID {
-		current.LastContentHash = hash
+	editErr := h.editMessageText(lv.ChatID, lv.MessageID, text, &tgKB)
+	if editErr == nil {
+		lv.ErrorCount = 0
+		h.liveViewsMu.Lock()
+		if current, ok := h.liveViews[lv.ChatID]; ok && current.MessageID == lv.MessageID {
+			current.LastContentHash = hash
+		}
+		h.liveViewsMu.Unlock()
+		return nil
 	}
-	h.liveViewsMu.Unlock()
 
-	// Check if edit failed (message deleted). The editMessageText logs errors
-	// but doesn't propagate them. We check if our view is still valid.
-	// If the edit produced an error containing "message to edit not found",
-	// deregister. We rely on editMessageText's internal logging for detection.
-	// For robustness, we also handle the case where a new view replaced ours
-	// during the async refresh — the lock above already ensures we only update
-	// the hash if our view is still tracked.
-	_ = hash // suppress unused warning when sha256 import might not be used elsewhere
-	return nil
+	// 404: message deleted — immediate deregister.
+	if strings.Contains(editErr.Error(), "message to edit not found") {
+		h.deregisterLiveView(lv.ChatID, lv.MessageID)
+		return editErr
+	}
+
+	// 429: already handled by editMessageText (NextRefreshAt set) — don't count.
+	var tgErr tgbotapi.Error
+	if errors.As(editErr, &tgErr) && tgErr.Code == 429 {
+		return editErr
+	}
+
+	// Other error: count consecutive failures.
+	lv.ErrorCount++
+	if lv.ErrorCount >= 3 {
+		h.deregisterLiveView(lv.ChatID, lv.MessageID)
+	}
+	return editErr
 }
 
 // filterPrefixForView returns the pagination prefix for the lv's Filter.
@@ -809,4 +885,12 @@ func filterPrefixForView(lv *LiveView) string {
 // bytes.NewReader helper — exposed for callback.go use within the package.
 func newBytesReader(data []byte) io.Reader {
 	return bytes.NewReader(data)
+}
+
+// defaultViewTTL returns opts.ViewTTL if non-zero, otherwise 5 minutes.
+func defaultViewTTL(v time.Duration) time.Duration {
+	if v <= 0 {
+		return 5 * time.Minute
+	}
+	return v
 }

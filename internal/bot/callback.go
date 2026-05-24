@@ -226,7 +226,7 @@ func (h *Handler) handleCategoryCallback(ctx context.Context, cq *tgbotapi.Callb
 		h.answerCallback(cq.ID, fmt.Sprintf("Error: %v", addErr))
 		// Edit message to show the error so the user sees it even after the
 		// spinner disappears.
-		h.editMessageText(chatID, cq.Message.MessageID,
+		_ = h.editMessageText(chatID, cq.Message.MessageID,
 			fmt.Sprintf("Failed to add torrent: %v", addErr), nil)
 		return
 	}
@@ -237,7 +237,7 @@ func (h *Handler) handleCategoryCallback(ctx context.Context, cq *tgbotapi.Callb
 	if category != "" {
 		confirmText = fmt.Sprintf("Torrent added to %s!", category)
 	}
-	h.editMessageText(chatID, cq.Message.MessageID, confirmText, nil)
+	_ = h.editMessageText(chatID, cq.Message.MessageID, confirmText, nil)
 }
 
 // handlePaginationCallback fetches the requested page of torrents and edits the
@@ -260,14 +260,15 @@ func (h *Handler) handlePaginationCallback(
 
 	tgKB := toTGKeyboard(kb)
 	h.answerCallback(cq.ID, "")
-	h.editMessageText(chatID, messageID, text, &tgKB)
+	_ = h.editMessageText(chatID, messageID, text, &tgKB)
 
 	h.liveViewsMu.Lock()
 	if lv, ok := h.liveViews[chatID]; ok && lv.MessageID == messageID {
 		lv.Page = page
 		lv.Filter = filter
 		lv.FilterChar = filterToChar(filter)
-		lv.LastContentHash = "" // force refresh on next tick
+		lv.LastContentHash = ""      // force refresh on next tick
+		lv.RegisteredAt = time.Now() // reset TTL deadline
 	}
 	h.liveViewsMu.Unlock()
 }
@@ -365,7 +366,7 @@ func (h *Handler) handleSelectCallback(ctx context.Context, cq *tgbotapi.Callbac
 	kb := toTGKeyboard(formatter.TorrentDetailKeyboard(hash, filterChar, page, torrent.State))
 
 	h.answerCallback(cq.ID, "")
-	h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &kb)
+	_ = h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &kb)
 
 	h.registerLiveView(cq.Message.Chat.ID, &LiveView{
 		ChatID:      cq.Message.Chat.ID,
@@ -432,7 +433,7 @@ func (h *Handler) handleTorrentAction(ctx context.Context, cq *tgbotapi.Callback
 		if torrent.Hash != "" {
 			text := formatter.FormatTorrentDetail(torrent)
 			kb := toTGKeyboard(formatter.TorrentDetailKeyboard(hash, filterChar, page, torrent.State))
-			h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &kb)
+			_ = h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &kb)
 
 			h.registerLiveView(cq.Message.Chat.ID, &LiveView{
 				ChatID:      cq.Message.Chat.ID,
@@ -450,7 +451,7 @@ func (h *Handler) handleTorrentAction(ctx context.Context, cq *tgbotapi.Callback
 	kb := toTGKeyboard(formatter.TorrentDetailKeyboard(hash, filterChar, page, torrent.State))
 
 	h.answerCallback(cq.ID, actionText)
-	h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &kb)
+	_ = h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &kb)
 
 	h.registerLiveView(cq.Message.Chat.ID, &LiveView{
 		ChatID:      cq.Message.Chat.ID,
@@ -492,7 +493,7 @@ func (h *Handler) handleBackCallback(ctx context.Context, cq *tgbotapi.CallbackQ
 
 	tgKB := toTGKeyboard(kb)
 	h.answerCallback(cq.ID, "")
-	h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &tgKB)
+	_ = h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &tgKB)
 
 	h.registerLiveView(cq.Message.Chat.ID, &LiveView{
 		ChatID:     cq.Message.Chat.ID,
@@ -536,7 +537,7 @@ func (h *Handler) handleRemoveConfirmCallback(ctx context.Context, cq *tgbotapi.
 		}
 		tgKB := toTGKeyboard(kb)
 		h.answerCallback(cq.ID, "Torrent not found.")
-		h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &tgKB)
+		_ = h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &tgKB)
 		return
 	}
 
@@ -544,9 +545,9 @@ func (h *Handler) handleRemoveConfirmCallback(ctx context.Context, cq *tgbotapi.
 	kb := toTGKeyboard(formatter.RemoveConfirmKeyboard(hash, filterChar, page))
 
 	h.answerCallback(cq.ID, "")
-	h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &kb)
+	_ = h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &kb)
 	// Confirmation view is not auto-refreshed — deregister any live view.
-	h.deregisterLiveView(cq.Message.Chat.ID)
+	h.deregisterLiveView(cq.Message.Chat.ID, cq.Message.MessageID)
 }
 
 // handleRemoveDeleteCallback handles both rd: (deleteFiles=false) and rf: (deleteFiles=true).
@@ -573,14 +574,14 @@ func (h *Handler) handleRemoveDeleteCallback(ctx context.Context, cq *tgbotapi.C
 	text, kb, listErr := h.renderTorrentListPage(ctx, filter, filterPrefix, page)
 	if listErr != nil {
 		h.answerCallback(cq.ID, "Removed.")
-		h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, "Removed.", nil)
-		h.deregisterLiveView(cq.Message.Chat.ID)
+		_ = h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, "Removed.", nil)
+		h.deregisterLiveView(cq.Message.Chat.ID, cq.Message.MessageID)
 		return
 	}
 
 	tgKB := toTGKeyboard(kb)
 	h.answerCallback(cq.ID, "Removed.")
-	h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &tgKB)
+	_ = h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &tgKB)
 
 	h.registerLiveView(cq.Message.Chat.ID, &LiveView{
 		ChatID:     cq.Message.Chat.ID,
@@ -778,7 +779,7 @@ func (h *Handler) handleFilesPageCallback(ctx context.Context, cq *tgbotapi.Call
 
 	tgKB := toTGKeyboard(kb)
 	h.answerCallback(cq.ID, "")
-	h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &tgKB)
+	_ = h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &tgKB)
 }
 
 // handleFilesPageNavCallback handles pg:fl:<hash>:<filePage>:<filterChar>:<listPage> —
@@ -812,7 +813,7 @@ func (h *Handler) handleFilesPageNavCallback(ctx context.Context, cq *tgbotapi.C
 
 	tgKB := toTGKeyboard(kb)
 	h.answerCallback(cq.ID, "")
-	h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &tgKB)
+	_ = h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &tgKB)
 }
 
 // handleBackFromFilesCallback handles bk:fl:<filterChar>:<listPage>:<hash> — returns
@@ -845,7 +846,7 @@ func (h *Handler) handleBackFromFilesCallback(ctx context.Context, cq *tgbotapi.
 	kb := toTGKeyboard(formatter.TorrentDetailKeyboard(hash, filterChar, listPage, torrent.State))
 
 	h.answerCallback(cq.ID, "")
-	h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &kb)
+	_ = h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &kb)
 }
 
 // handleFileSelectCallback handles fs: callbacks — showing the priority selector for a file.
@@ -872,7 +873,7 @@ func (h *Handler) handleFileSelectCallback(ctx context.Context, cq *tgbotapi.Cal
 	fps := formatter.FilesPageState{FilePage: filePage, FilterChar: filterChar, ListPage: listPage}
 	kb := toTGKeyboard(formatter.PriorityKeyboard(hash, fileIndex, currentPriority, fps))
 	h.answerCallback(cq.ID, "")
-	h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, "Select priority:", &kb)
+	_ = h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, "Select priority:", &kb)
 }
 
 // handleFilePriorityCallback handles fp: callbacks — setting a file's download priority.
@@ -914,7 +915,7 @@ func (h *Handler) handleFilePriorityCallback(ctx context.Context, cq *tgbotapi.C
 
 	tgKB := toTGKeyboard(kb)
 	h.answerCallback(cq.ID, "Priority updated.")
-	h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &tgKB)
+	_ = h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &tgKB)
 }
 
 // handleRemoveCancelCallback handles rc: by returning to the torrent detail view.
@@ -949,7 +950,7 @@ func (h *Handler) handleRemoveCancelCallback(ctx context.Context, cq *tgbotapi.C
 		}
 		tgKB := toTGKeyboard(kb)
 		h.answerCallback(cq.ID, "Torrent not found.")
-		h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &tgKB)
+		_ = h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &tgKB)
 
 		h.registerLiveView(cq.Message.Chat.ID, &LiveView{
 			ChatID:     cq.Message.Chat.ID,
@@ -966,7 +967,7 @@ func (h *Handler) handleRemoveCancelCallback(ctx context.Context, cq *tgbotapi.C
 	kb := toTGKeyboard(formatter.TorrentDetailKeyboard(hash, filterChar, page, torrent.State))
 
 	h.answerCallback(cq.ID, "")
-	h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &kb)
+	_ = h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &kb)
 
 	h.registerLiveView(cq.Message.Chat.ID, &LiveView{
 		ChatID:      cq.Message.Chat.ID,
@@ -1012,7 +1013,7 @@ func (h *Handler) handleSearchSelectCallback(ctx context.Context, cq *tgbotapi.C
 	kb := toTGKeyboard(formatter.SearchConfirmKeyboard(jobID, idx, page))
 
 	h.answerCallback(cq.ID, "")
-	h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &kb)
+	_ = h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &kb)
 }
 
 func (h *Handler) handleSearchPageCallback(ctx context.Context, cq *tgbotapi.CallbackQuery, data string) {
@@ -1056,7 +1057,7 @@ func (h *Handler) handleSearchCancelCallback(ctx context.Context, cq *tgbotapi.C
 	}
 
 	_ = h.qbt.DeleteSearch(ctx, jobID)
-	h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, "Search canceled.", nil)
+	_ = h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, "Search canceled.", nil)
 	h.answerCallback(cq.ID, "")
 }
 
@@ -1122,7 +1123,7 @@ func (h *Handler) handleSearchConfirmCallback(ctx context.Context, cq *tgbotapi.
 	result := state.Results[idx]
 	if !strings.HasPrefix(result.FileURL, "magnet:?") {
 		h.answerCallback(cq.ID, "")
-		h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, "This result doesn't have a magnet link. Try another result.", nil)
+		_ = h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, "This result doesn't have a magnet link. Try another result.", nil)
 		return
 	}
 

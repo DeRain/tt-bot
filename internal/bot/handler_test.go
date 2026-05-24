@@ -669,7 +669,7 @@ func TestLiveViewRegisterDeregister(t *testing.T) {
 	h.liveViewsMu.Unlock()
 
 	// Deregister.
-	h.deregisterLiveView(chatID)
+	h.deregisterLiveView(chatID, 200)
 
 	h.liveViewsMu.Lock()
 	if _, ok := h.liveViews[chatID]; ok {
@@ -679,7 +679,7 @@ func TestLiveViewRegisterDeregister(t *testing.T) {
 	h.liveViewsMu.Unlock()
 
 	// Deregister non-existent is a no-op.
-	h.deregisterLiveView(chatID)
+	h.deregisterLiveView(chatID, 200)
 }
 
 func TestRefreshLiveView_ListView_Changed(t *testing.T) {
@@ -1224,5 +1224,322 @@ func TestPollSearchResults_StartError(t *testing.T) {
 
 	if !sender.hasText("Search unavailable") && !sender.hasText("Searching for 'ubuntu'") {
 		t.Fatalf("expected unavailable message, got: %v", sender.sentTexts())
+	}
+}
+
+// ############################################################################
+// LiveView lifecycle tests (REQ-8, REQ-9)
+// ############################################################################
+
+func TestRegisterLiveView_SetsTimestamp(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	chatID := int64(1)
+	before := time.Now()
+	h.registerLiveView(chatID, &LiveView{
+		ChatID:    chatID,
+		MessageID: 100,
+		ViewType:  ViewList,
+		Filter:    qbt.FilterAll,
+		Page:      1,
+	})
+	after := time.Now()
+
+	h.liveViewsMu.Lock()
+	lv := h.liveViews[chatID]
+	h.liveViewsMu.Unlock()
+
+	if lv == nil {
+		t.Fatal("expected live view to be registered")
+	}
+	if lv.RegisteredAt.Before(before) || lv.RegisteredAt.After(after) {
+		t.Fatalf("RegisteredAt=%v, want between %v and %v", lv.RegisteredAt, before, after)
+	}
+
+	// Re-register should update timestamp.
+	time.Sleep(10 * time.Millisecond)
+	h.registerLiveView(chatID, &LiveView{
+		ChatID:      chatID,
+		MessageID:   200,
+		ViewType:    ViewDetail,
+		TorrentHash: "abc",
+	})
+	h.liveViewsMu.Lock()
+	newLV := h.liveViews[chatID]
+	h.liveViewsMu.Unlock()
+
+	if !newLV.RegisteredAt.After(lv.RegisteredAt) {
+		t.Fatal("re-registration should set a newer RegisteredAt")
+	}
+}
+
+func TestRefreshLiveView_DeadlineExpired(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{
+		torrents: []qbt.Torrent{
+			{Hash: "a", Name: "A", Progress: 0.5, State: "downloading"},
+		},
+	}
+	auth := NewAuthorizer([]int64{1})
+	// Use a zero ViewTTL so every view is instantly expired.
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{
+		BotToken: "test-token",
+		ViewTTL:  0, // defaults to 5min, but we set RegisteredAt far in the past
+	})
+
+	chatID := int64(1)
+	lv := &LiveView{
+		ChatID:    chatID,
+		MessageID: 100,
+		ViewType:  ViewList,
+		Filter:    qbt.FilterAll,
+		Page:      1,
+	}
+	// Simulate a view registered long ago.
+	lv.RegisteredAt = time.Now().Add(-1 * time.Hour)
+	h.liveViewsMu.Lock()
+	h.liveViews[chatID] = lv
+	h.liveViewsMu.Unlock()
+
+	err := h.refreshLiveView(context.Background(), lv)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// View should be deregistered.
+	h.liveViewsMu.Lock()
+	_, ok := h.liveViews[chatID]
+	h.liveViewsMu.Unlock()
+	if ok {
+		t.Fatal("expected view to be deregistered after deadline expiry")
+	}
+	// No API call should have been made (deadline fires before rendering).
+	if sender.hasRequest() {
+		t.Fatal("expected no Request call for expired view")
+	}
+}
+
+func TestRefreshLiveView_CooldownSkip(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{
+		torrents: []qbt.Torrent{
+			{Hash: "a", Name: "A", Progress: 0.5, State: "downloading"},
+		},
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	chatID := int64(1)
+	lv := &LiveView{
+		ChatID:        chatID,
+		MessageID:     100,
+		ViewType:      ViewList,
+		Filter:        qbt.FilterAll,
+		Page:          1,
+		RegisteredAt:  time.Now(),
+		NextRefreshAt: time.Now().Add(5 * time.Minute), // cooldown active
+	}
+	h.liveViewsMu.Lock()
+	h.liveViews[chatID] = lv
+	h.liveViewsMu.Unlock()
+
+	err := h.refreshLiveView(context.Background(), lv)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// No API call — cooldown skipped the refresh.
+	if sender.hasRequest() {
+		t.Fatal("expected no Request call during cooldown")
+	}
+	// View is still registered (cooldown does not deregister).
+	h.liveViewsMu.Lock()
+	_, ok := h.liveViews[chatID]
+	h.liveViewsMu.Unlock()
+	if !ok {
+		t.Fatal("expected view to remain registered during cooldown")
+	}
+}
+
+func TestRefreshLiveView_ErrorDiscrimination(t *testing.T) {
+	t.Run("429 sets NextRefreshAt and keeps view", func(t *testing.T) {
+		sender := &mockSender{
+			requestErr: tgbotapi.Error{
+				Code:    429,
+				Message: "Too Many Requests: retry after 30",
+				ResponseParameters: tgbotapi.ResponseParameters{
+					RetryAfter: 30,
+				},
+			},
+		}
+		qbtClient := &mockQBTClient{
+			torrents: []qbt.Torrent{
+				{Hash: "a", Name: "A", Progress: 0.5, State: "downloading"},
+			},
+		}
+		auth := NewAuthorizer([]int64{1})
+		h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+		chatID := int64(1)
+		before := time.Now()
+		lv := &LiveView{
+			ChatID:       chatID,
+			MessageID:    100,
+			ViewType:     ViewList,
+			Filter:       qbt.FilterAll,
+			Page:         1,
+			RegisteredAt: time.Now(),
+		}
+		h.liveViewsMu.Lock()
+		h.liveViews[chatID] = lv
+		h.liveViewsMu.Unlock()
+
+		err := h.refreshLiveView(context.Background(), lv)
+		if err == nil {
+			t.Fatal("expected error from 429")
+		}
+
+		if lv.NextRefreshAt.Before(before.Add(25 * time.Second)) {
+			t.Fatalf("expected NextRefreshAt to be set ~30s in future, got %v (before=%v)", lv.NextRefreshAt, before)
+		}
+		if lv.ErrorCount != 0 {
+			t.Fatalf("expected ErrorCount=0 after 429, got %d", lv.ErrorCount)
+		}
+		// View stays registered.
+		h.liveViewsMu.Lock()
+		_, ok := h.liveViews[chatID]
+		h.liveViewsMu.Unlock()
+		if !ok {
+			t.Fatal("expected view to remain registered after 429")
+		}
+	})
+
+	t.Run("404 deregisters immediately", func(t *testing.T) {
+		sender := &mockSender{
+			requestErr: errors.New("message to edit not found"),
+		}
+		qbtClient := &mockQBTClient{
+			torrents: []qbt.Torrent{
+				{Hash: "a", Name: "A", Progress: 0.5, State: "downloading"},
+			},
+		}
+		auth := NewAuthorizer([]int64{1})
+		h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+		chatID := int64(1)
+		lv := &LiveView{
+			ChatID:       chatID,
+			MessageID:    100,
+			ViewType:     ViewList,
+			Filter:       qbt.FilterAll,
+			Page:         1,
+			RegisteredAt: time.Now(),
+		}
+		h.liveViewsMu.Lock()
+		h.liveViews[chatID] = lv
+		h.liveViewsMu.Unlock()
+
+		err := h.refreshLiveView(context.Background(), lv)
+		if err == nil {
+			t.Fatal("expected error from 404")
+		}
+
+		h.liveViewsMu.Lock()
+		_, ok := h.liveViews[chatID]
+		h.liveViewsMu.Unlock()
+		if ok {
+			t.Fatal("expected view to be deregistered after 404")
+		}
+	})
+
+	t.Run("3 consecutive errors deregister", func(t *testing.T) {
+		sender := &mockSender{
+			requestErr: errors.New("network timeout"),
+		}
+		qbtClient := &mockQBTClient{
+			torrents: []qbt.Torrent{
+				{Hash: "a", Name: "A", Progress: 0.5, State: "downloading"},
+			},
+		}
+		auth := NewAuthorizer([]int64{1})
+		h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+		chatID := int64(1)
+		lv := &LiveView{
+			ChatID:       chatID,
+			MessageID:    100,
+			ViewType:     ViewList,
+			Filter:       qbt.FilterAll,
+			Page:         1,
+			RegisteredAt: time.Now(),
+		}
+		h.liveViewsMu.Lock()
+		h.liveViews[chatID] = lv
+		h.liveViewsMu.Unlock()
+
+		// Error 1 — still registered.
+		_ = h.refreshLiveView(context.Background(), lv)
+		if lv.ErrorCount != 1 {
+			t.Fatalf("expected ErrorCount=1, got %d", lv.ErrorCount)
+		}
+
+		// Error 2 — still registered.
+		_ = h.refreshLiveView(context.Background(), lv)
+		if lv.ErrorCount != 2 {
+			t.Fatalf("expected ErrorCount=2, got %d", lv.ErrorCount)
+		}
+
+		// Error 3 — deregistered.
+		_ = h.refreshLiveView(context.Background(), lv)
+		h.liveViewsMu.Lock()
+		_, ok := h.liveViews[chatID]
+		h.liveViewsMu.Unlock()
+		if ok {
+			t.Fatal("expected view to be deregistered after 3 consecutive errors")
+		}
+		if lv.ErrorCount != 3 {
+			t.Fatalf("expected ErrorCount=3, got %d", lv.ErrorCount)
+		}
+	})
+}
+
+func TestRefreshViews_ConcurrencyLimit(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{
+		torrents: []qbt.Torrent{
+			{Hash: "a", Name: "A", Progress: 0.5, State: "downloading"},
+		},
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token", ViewTTL: 1 * time.Hour})
+
+	// Register 10 views (more than maxConcurrentRefreshes=5).
+	for i := int64(1); i <= 10; i++ {
+		h.registerLiveView(i, &LiveView{
+			ChatID:    i,
+			MessageID: int(i * 100),
+			ViewType:  ViewList,
+			Filter:    qbt.FilterAll,
+			Page:      1,
+		})
+	}
+
+	// refreshViews should complete without panicking or deadlocking.
+	h.refreshViews(context.Background())
+
+	// All 10 views should have been processed.
+	h.liveViewsMu.Lock()
+	remaining := len(h.liveViews)
+	h.liveViewsMu.Unlock()
+	if remaining != 10 {
+		t.Fatalf("expected 10 views registered, got %d", remaining)
+	}
+	// Verify sender was called (hash-based change detection means all views
+	// produce different content on the first refresh).
+	if !sender.hasRequest() {
+		t.Fatal("expected Request calls for concurrent views")
 	}
 }
