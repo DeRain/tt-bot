@@ -608,7 +608,7 @@ func (c *HTTPClient) StartSearch(ctx context.Context, pattern string) (int, erro
 
 func (c *HTTPClient) SearchStatus(ctx context.Context, jobID int) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		c.baseURL+"/api/v2/search/status", nil)
+		c.baseURL+"/api/v2/search/status?id="+strconv.Itoa(jobID), nil)
 	if err != nil {
 		return "", fmt.Errorf("qbt search status: build request: %w", err)
 	}

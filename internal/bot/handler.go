@@ -32,6 +32,7 @@ const (
 
 	searchPollInterval = 1 * time.Second
 	searchTimeout      = 30 * time.Second
+	maxSearchPolls     = int(searchTimeout / searchPollInterval) // derived; ~30 polls for 30s default
 	searchResultsLimit = 100
 	searchTTL          = 10 * time.Minute
 	searchPromptTTL    = 5 * time.Minute
@@ -109,6 +110,7 @@ type Handler struct {
 
 	searches      map[int64]*SearchState
 	searchPrompts map[int64]*SearchPrompt
+	searchCancels map[int64]context.CancelFunc
 	searchMu      sync.Mutex
 
 	viewRefreshInterval time.Duration
@@ -143,6 +145,7 @@ func New(ctx context.Context, sender Sender, qbtClient qbt.Client, auth *Authori
 		pending:             make(map[int64]*PendingTorrent),
 		searches:            make(map[int64]*SearchState),
 		searchPrompts:       make(map[int64]*SearchPrompt),
+		searchCancels:       make(map[int64]context.CancelFunc),
 		liveViews:           make(map[int64]*LiveView),
 		viewRefreshInterval: opts.ViewRefreshInterval,
 		viewTTL:             defaultViewTTL(opts.ViewTTL),
@@ -185,11 +188,23 @@ func (h *Handler) evictExpired() {
 	for chatID, state := range h.searches {
 		if state.CreatedAt.Before(searchCutoff) {
 			delete(h.searches, chatID)
+			if cancel, ok := h.searchCancels[chatID]; ok {
+				cancel()
+				delete(h.searchCancels, chatID)
+			}
 		}
 	}
 	for chatID, prompt := range h.searchPrompts {
 		if prompt.CreatedAt.Before(promptCutoff) {
 			delete(h.searchPrompts, chatID)
+		}
+	}
+	// Clean up cancel entries whose search state was taken (e.g., callback).
+	for chatID := range h.searchCancels {
+		_, hasSearch := h.searches[chatID]
+		_, hasPrompt := h.searchPrompts[chatID]
+		if !hasSearch && !hasPrompt {
+			delete(h.searchCancels, chatID)
 		}
 	}
 	h.searchMu.Unlock()
@@ -269,8 +284,8 @@ func (h *Handler) handleSearchCommand(ctx context.Context, msg *tgbotapi.Message
 		h.replyText(msg.Chat.ID, "What to search for?")
 		return
 	}
-	h.replyText(msg.Chat.ID, fmt.Sprintf("Searching for '%s'...", query))
-	go h.pollSearchResults(ctx, msg.Chat.ID, query)
+	replyMsgID := h.replyText(msg.Chat.ID, fmt.Sprintf("Searching for '%s'...", query))
+	h.launchSearch(ctx, msg.Chat.ID, query, replyMsgID)
 }
 
 func (h *Handler) handleSearchPromptReply(ctx context.Context, msg *tgbotapi.Message) {
@@ -279,51 +294,97 @@ func (h *Handler) handleSearchPromptReply(ctx context.Context, msg *tgbotapi.Mes
 		h.replyText(msg.Chat.ID, "Usage: /search <query>")
 		return
 	}
-	h.replyText(msg.Chat.ID, fmt.Sprintf("Searching for '%s'...", query))
-	go h.pollSearchResults(ctx, msg.Chat.ID, query)
+	replyMsgID := h.replyText(msg.Chat.ID, fmt.Sprintf("Searching for '%s'...", query))
+	h.launchSearch(ctx, msg.Chat.ID, query, replyMsgID)
 }
 
-func (h *Handler) pollSearchResults(ctx context.Context, chatID int64, query string) {
+// launchSearch cancels any in-flight search for chatID, then starts a new
+// search goroutine with a deadline context. Callers have already sent the
+// "Searching for..." message.
+func (h *Handler) launchSearch(ctx context.Context, chatID int64, query string, replyMsgID int) {
+	searchCtx, cancel := context.WithTimeout(ctx, searchTimeout+5*time.Second)
+
+	h.searchMu.Lock()
+	if oldCancel, ok := h.searchCancels[chatID]; ok {
+		oldCancel()
+	}
+	h.searchCancels[chatID] = cancel
+	h.searchMu.Unlock()
+
+	go func() {
+		defer cancel()
+		h.pollSearchResults(searchCtx, chatID, query, replyMsgID)
+	}()
+}
+
+func (h *Handler) pollSearchResults(ctx context.Context, chatID int64, query string, replyMsgID int) {
 	jobID, err := h.qbt.StartSearch(ctx, query)
 	if err != nil {
 		log.Printf("bot: start search: %v", err)
-		h.replyText(chatID, "Search unavailable. Please check your search configuration.")
+		h.editOrReply(chatID, replyMsgID, "Search unavailable. Please check your search configuration.")
 		return
 	}
 
 	ticker := time.NewTicker(searchPollInterval)
 	defer ticker.Stop()
-	timeout := time.After(searchTimeout)
 
+	pollCount := 0
 	for {
 		select {
-		case <-timeout:
-			_ = h.qbt.StopSearch(ctx, jobID)
-			_ = h.qbt.DeleteSearch(ctx, jobID)
-			h.replyText(chatID, "Search timed out. Please try again later.")
-			return
 		case <-ctx.Done():
-			_ = h.qbt.StopSearch(ctx, jobID)
-			_ = h.qbt.DeleteSearch(ctx, jobID)
+			// Timeout or cancellation (shutdown, dedup). Notify user only on timeout.
+			if ctx.Err() == context.DeadlineExceeded {
+				h.editOrReply(chatID, replyMsgID, "Search timed out. Please try again later.")
+			}
+			go func() {
+				cleanCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				if err := h.qbt.StopSearch(cleanCtx, jobID); err != nil {
+					log.Printf("bot: stop search %d: %v", jobID, err)
+				}
+				if err := h.qbt.DeleteSearch(cleanCtx, jobID); err != nil {
+					log.Printf("bot: delete search %d: %v", jobID, err)
+				}
+			}()
 			return
 		case <-ticker.C:
+			pollCount++
+			if pollCount >= maxSearchPolls {
+				h.editOrReply(chatID, replyMsgID, "Search timed out. Please try again later.")
+				go func() {
+					cleanCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+					defer cancel()
+					if err := h.qbt.StopSearch(cleanCtx, jobID); err != nil {
+						log.Printf("bot: stop search %d: %v", jobID, err)
+					}
+					if err := h.qbt.DeleteSearch(cleanCtx, jobID); err != nil {
+						log.Printf("bot: delete search %d: %v", jobID, err)
+					}
+				}()
+				return
+			}
 			status, err := h.qbt.SearchStatus(ctx, jobID)
 			if err != nil {
 				log.Printf("bot: search status: %v", err)
 				continue
 			}
-			if status == "Stopped" {
+			switch status {
+			case "Stopped":
 				results, total, err := h.qbt.SearchResults(ctx, jobID, 0, searchResultsLimit)
 				if err != nil {
 					log.Printf("bot: search results: %v", err)
-					h.replyText(chatID, "Search failed. Please try again later.")
-					_ = h.qbt.DeleteSearch(ctx, jobID)
+					h.editOrReply(chatID, replyMsgID, "Search failed. Please try again later.")
+					if err := h.qbt.DeleteSearch(ctx, jobID); err != nil {
+						log.Printf("bot: delete search %d: %v", jobID, err)
+					}
 					return
 				}
-				_ = h.qbt.DeleteSearch(ctx, jobID)
+				if err := h.qbt.DeleteSearch(ctx, jobID); err != nil {
+					log.Printf("bot: delete search %d: %v", jobID, err)
+				}
 
 				if len(results) == 0 {
-					h.replyText(chatID, fmt.Sprintf("No torrents found for '%s'.", query))
+					h.editOrReply(chatID, replyMsgID, fmt.Sprintf("No torrents found for '%s'.", query))
 					return
 				}
 
@@ -345,9 +406,28 @@ func (h *Handler) pollSearchResults(ctx context.Context, chatID int64, query str
 					h.storeSearch(chatID, state)
 				}
 				return
+			case "Error", "NoResults":
+				h.editOrReply(chatID, replyMsgID, "Search failed or returned no results. Please try again later.")
+				if err := h.qbt.DeleteSearch(ctx, jobID); err != nil {
+					log.Printf("bot: delete search %d: %v", jobID, err)
+				}
+				return
 			}
 		}
 	}
+}
+
+// editOrReply edits the original reply message if its ID is known, otherwise
+// sends a new message. Used for error/timeout/no-results follow-ups so the
+// "Searching for..." message is replaced in-place.
+func (h *Handler) editOrReply(chatID int64, replyMsgID int, text string) {
+	if replyMsgID != 0 {
+		if err := h.editMessageText(chatID, replyMsgID, text, nil); err == nil {
+			return
+		}
+		// Edit failed — fall through to send a new message.
+	}
+	h.replyText(chatID, text)
 }
 
 func (h *Handler) sendSearchResultsPage(chatID int64, state *SearchState, page int, messageID int) int {
@@ -610,11 +690,14 @@ func (h *Handler) sendCategoryKeyboard(ctx context.Context, chatID int64, prompt
 }
 
 // replyText sends a plain-text message to chatID.
-func (h *Handler) replyText(chatID int64, text string) {
+func (h *Handler) replyText(chatID int64, text string) int {
 	msg := tgbotapi.NewMessage(chatID, text)
-	if _, err := h.sender.Send(msg); err != nil {
+	sent, err := h.sender.Send(msg)
+	if err != nil {
 		log.Printf("bot: send error: %v", err)
+		return 0
 	}
+	return sent.MessageID
 }
 
 // storePending stores pt under chatID, replacing any existing entry.

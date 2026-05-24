@@ -1176,7 +1176,7 @@ func TestPollSearchResults(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	h.pollSearchResults(ctx, 1, "ubuntu")
+	h.pollSearchResults(ctx, 1, "ubuntu", 0)
 
 	time.Sleep(100 * time.Millisecond)
 
@@ -1198,7 +1198,7 @@ func TestPollSearchResults_NoResults(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	h.pollSearchResults(ctx, 1, "nothing")
+	h.pollSearchResults(ctx, 1, "nothing", 0)
 
 	time.Sleep(100 * time.Millisecond)
 
@@ -1218,13 +1218,238 @@ func TestPollSearchResults_StartError(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	h.pollSearchResults(ctx, 1, "ubuntu")
+	h.pollSearchResults(ctx, 1, "ubuntu", 0)
 
 	time.Sleep(100 * time.Millisecond)
 
 	if !sender.hasText("Search unavailable") && !sender.hasText("Searching for 'ubuntu'") {
 		t.Fatalf("expected unavailable message, got: %v", sender.sentTexts())
 	}
+}
+
+func TestPollSearchResults_ErrorStatus(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{
+		searchJobID:  789,
+		searchStatus: "Error",
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	h.pollSearchResults(ctx, 1, "ubuntu", 0)
+
+	time.Sleep(100 * time.Millisecond)
+
+	if !sender.hasText("Search failed or returned no results") {
+		t.Fatalf("expected failure message, got: %v", sender.sentTexts())
+	}
+	if !qbtClient.deleteSearchCalled {
+		t.Fatal("expected DeleteSearch to be called")
+	}
+}
+
+func TestPollSearchResults_NoResultsStatus(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{
+		searchJobID:  789,
+		searchStatus: "NoResults",
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	h.pollSearchResults(ctx, 1, "nothing", 0)
+
+	time.Sleep(100 * time.Millisecond)
+
+	if !sender.hasText("Search failed or returned no results") {
+		t.Fatalf("expected failure message, got: %v", sender.sentTexts())
+	}
+	if !qbtClient.deleteSearchCalled {
+		t.Fatal("expected DeleteSearch to be called")
+	}
+}
+
+func TestPollSearchResults_Timeout(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{
+		searchJobID:  789,
+		searchStatus: "Running", // never completes
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	// Very short deadline to trigger timeout quickly.
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	h.pollSearchResults(ctx, 1, "ubuntu", 0)
+
+	time.Sleep(200 * time.Millisecond)
+
+	if !sender.hasText("Search timed out") {
+		t.Fatalf("expected timeout message, got: %v", sender.sentTexts())
+	}
+	// Cleanup runs in background goroutine — wait briefly.
+	time.Sleep(50 * time.Millisecond)
+	if !qbtClient.stopSearchCalled {
+		t.Fatal("expected StopSearch to be called on timeout")
+	}
+	if !qbtClient.deleteSearchCalled {
+		t.Fatal("expected DeleteSearch to be called on timeout")
+	}
+}
+
+func TestPollSearchResults_ContextCancelled(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{
+		searchJobID:  789,
+		searchStatus: "Running",
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // immediate cancellation
+
+	h.pollSearchResults(ctx, 1, "ubuntu", 0)
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Context cancellation (not timeout) should NOT send a message.
+	if sender.hasText("Search timed out") {
+		t.Fatalf("should not send timeout on context cancel, got: %v", sender.sentTexts())
+	}
+	// Cleanup runs in background goroutine — wait briefly.
+	time.Sleep(50 * time.Millisecond)
+	if !qbtClient.stopSearchCalled {
+		t.Fatal("expected StopSearch to be called on cancel")
+	}
+	if !qbtClient.deleteSearchCalled {
+		t.Fatal("expected DeleteSearch to be called on cancel")
+	}
+}
+
+func TestSearchGoroutineDedup(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{
+		searchJobID:  789,
+		searchStatus: "Running", // keeps first search alive
+		searchResults: []qbt.SearchResult{
+			{FileName: "Result", FileSize: 100, NbSeeders: 5, FileURL: "magnet:?xt=urn:btih:xyz"},
+		},
+		searchTotal: 1,
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	// Launch first search via direct cancel injection (simulates launchSearch).
+	ctx1, cancel1 := context.WithTimeout(context.Background(), searchTimeout+5*time.Second)
+	h.searchMu.Lock()
+	h.searchCancels[1] = cancel1
+	h.searchMu.Unlock()
+	go func() {
+		defer cancel1()
+		h.pollSearchResults(ctx1, 1, "first", 0)
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify first search is still registered.
+	h.searchMu.Lock()
+	_, hasCancel := h.searchCancels[1]
+	h.searchMu.Unlock()
+	if !hasCancel {
+		t.Fatal("expected first search to be registered")
+	}
+
+	// Launch second search — should cancel the first via handleSearchCommand dedup.
+	cmdMsg := tgbotapi.Update{
+		Message: &tgbotapi.Message{
+			Chat: &tgbotapi.Chat{ID: 1},
+			From: &tgbotapi.User{ID: 1},
+			Text: "/search second",
+			Entities: []tgbotapi.MessageEntity{
+				{Type: "bot_command", Offset: 0, Length: 7},
+			},
+		},
+	}
+	h.HandleUpdate(context.Background(), cmdMsg)
+
+	time.Sleep(200 * time.Millisecond)
+
+	// First search should have been canceled.
+	select {
+	case <-ctx1.Done():
+		// Expected — first search was canceled.
+	default:
+		t.Fatal("expected first search context to be canceled")
+	}
+}
+
+func TestPollSearchResults_Timeout_WithEditMsgID(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{
+		searchJobID:  789,
+		searchStatus: "Running",
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	h.pollSearchResults(ctx, 1, "ubuntu", 42) // replyMsgID=42 exercises edit path
+
+	time.Sleep(200 * time.Millisecond)
+
+	// With non-zero replyMsgID, the timeout message is sent via editMessageText (Request), not Send.
+	if !sender.hasRequest() {
+		t.Fatal("expected editMessageText call when replyMsgID is non-zero")
+	}
+}
+
+func TestEditOrReply(t *testing.T) {
+	auth := NewAuthorizer([]int64{1})
+
+	t.Run("edits when replyMsgID non-zero", func(t *testing.T) {
+		sender := &mockSender{}
+		h := New(context.Background(), sender, &mockQBTClient{}, auth, HandlerOptions{BotToken: "test-token"})
+		h.editOrReply(1, 42, "test edit")
+		if !sender.hasRequest() {
+			t.Fatal("expected editMessageText when replyMsgID != 0")
+		}
+	})
+
+	t.Run("sends new message when replyMsgID zero", func(t *testing.T) {
+		sender := &mockSender{}
+		h := New(context.Background(), sender, &mockQBTClient{}, auth, HandlerOptions{BotToken: "test-token"})
+		h.editOrReply(1, 0, "test send")
+		if sender.hasRequest() {
+			t.Fatal("expected new message send when replyMsgID == 0, not edit")
+		}
+		if !sender.hasText("test send") {
+			t.Fatalf("expected new message, got: %v", sender.sentTexts())
+		}
+	})
+
+	t.Run("falls back to new message on edit failure", func(t *testing.T) {
+		sender := &mockSender{requestErr: errors.New("edit failed")}
+		h := New(context.Background(), sender, &mockQBTClient{}, auth, HandlerOptions{BotToken: "test-token"})
+		h.editOrReply(1, 42, "fallback test")
+		// editMessageText was attempted (hasRequest) but failed, so replyText should also have been called.
+		if !sender.hasRequest() {
+			t.Fatal("expected edit attempt")
+		}
+		if !sender.hasText("fallback test") {
+			t.Fatalf("expected fallback new message after edit failure, got: %v", sender.sentTexts())
+		}
+	})
 }
 
 // ############################################################################

@@ -8,9 +8,11 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
@@ -46,6 +48,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to create Telegram bot: %v", err)
 	}
+	botAPI.Client = &http.Client{Timeout: 30 * time.Second}
 	log.Printf("Authorized on account %s", botAPI.Self.UserName)
 
 	// 2a. Register bot commands with Telegram (fail-open).

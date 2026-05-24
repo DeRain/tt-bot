@@ -3,6 +3,7 @@ package bot
 import (
 	"context"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -1050,13 +1051,26 @@ func (h *Handler) handleSearchCancelCallback(ctx context.Context, cq *tgbotapi.C
 		return
 	}
 
+	// Cancel the background polling goroutine before taking state.
+	h.searchMu.Lock()
+	if cancel, ok := h.searchCancels[cq.Message.Chat.ID]; ok {
+		cancel()
+		delete(h.searchCancels, cq.Message.Chat.ID)
+	}
+	h.searchMu.Unlock()
+
 	state := h.takeSearch(cq.Message.Chat.ID)
 	if state == nil || state.JobID != jobID {
 		h.answerCallback(cq.ID, "Search expired.")
 		return
 	}
 
-	_ = h.qbt.DeleteSearch(ctx, jobID)
+	if err := h.qbt.StopSearch(ctx, jobID); err != nil {
+		log.Printf("bot: stop search %d: %v", jobID, err)
+	}
+	if err := h.qbt.DeleteSearch(ctx, jobID); err != nil {
+		log.Printf("bot: delete search %d: %v", jobID, err)
+	}
 	_ = h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, "Search canceled.", nil)
 	h.answerCallback(cq.ID, "")
 }
