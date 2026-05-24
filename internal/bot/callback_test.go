@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -1679,14 +1681,15 @@ func TestCallback_SearchConfirmCallback_WithMagnet(t *testing.T) {
 	}
 }
 
-func TestCallback_SearchConfirmCallback_NoMagnet(t *testing.T) {
+func TestCallback_SearchConfirmCallback_NoMagnet_ShowsError(t *testing.T) {
 	sender := &mockSender{}
 	qbtClient := &mockQBTClient{}
 	auth := NewAuthorizer([]int64{1})
 	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
+	// Using ftp:// — neither magnet:? nor http:// — should show no-download-link error.
 	results := []qbt.SearchResult{
-		{FileName: "Ubuntu 24.04", FileSize: 1024, NbSeeders: 10, FileURL: "https://example.com/torrent"},
+		{FileName: "Ubuntu 24.04", FileSize: 1024, NbSeeders: 10, FileURL: "ftp://example.com/torrent"},
 	}
 	h.storeSearch(1, &SearchState{
 		ChatID:    1,
@@ -1699,8 +1702,176 @@ func TestCallback_SearchConfirmCallback_NoMagnet(t *testing.T) {
 	update := newCallbackUpdate(1, "cb-sc", "sc:123:0")
 	h.HandleUpdate(context.Background(), update)
 
-	if !sender.hasEditText("doesn't have a magnet link") {
+	if len(sender.sentMessages) < 2 {
+		t.Fatalf("expected at least 2 requests (answerCallback + editMessage), got %d", len(sender.sentMessages))
+	}
+
+	if !sender.hasEditText("doesn't have a valid download link") {
 		t.Fatalf("expected no-magnet error, got edits: %v", sender.editTexts())
+	}
+}
+
+func TestCallback_SearchConfirmCallback_MagnetUnchanged(t *testing.T) {
+	// Regression: magnet-only flow must continue to work after HTTP download
+	// support is added. This test should pass immediately (red-phase guard).
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{
+		categories: []qbt.Category{{Name: "Movies"}},
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	results := []qbt.SearchResult{
+		{FileName: "Fedora 40", FileSize: 2048, NbSeeders: 5, FileURL: "magnet:?xt=urn:btih:def"},
+	}
+	h.storeSearch(1, &SearchState{
+		ChatID:    1,
+		MessageID: 100,
+		JobID:     456,
+		Results:   results,
+		Total:     1,
+	})
+
+	update := newCallbackUpdate(1, "cb-sc", "sc:456:0")
+	h.HandleUpdate(context.Background(), update)
+
+	if !sender.hasText("Select category for this torrent:") {
+		t.Fatalf("expected category prompt, got: %v", sender.sentTexts())
+	}
+
+	pending := h.takePending(1)
+	if pending == nil || pending.MagnetLink != "magnet:?xt=urn:btih:def" {
+		t.Fatalf("expected pending magnet, got: %v", pending)
+	}
+}
+
+func TestCallback_SearchConfirmCallback_HTTPDownload_Success(t *testing.T) {
+	// TODO: This test needs a way to bypass SSRF check for local test servers.
+	// Consider making downloadSearchTorrent a package-level var that can be
+	// swapped in tests (e.g. var downloadSearchTorrentFn = downloadSearchTorrent).
+	//
+	// The real handleSearchConfirmCallback rejects 127.0.0.1 as a private IP,
+	// so this httptest server setup cannot currently reach the handler.
+	// Uncomment the HandleUpdate call once downloadSearchTorrentFn injection
+	// is available.
+
+	// Serve valid .torrent bytes.
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Minimal valid bencoded .torrent data.
+		torrentData := []byte("d8:announce19:http://example.com/a4:infod6:lengthi0e4:name4:test12:piece lengthi32768e6:pieces20:aaaaaaaaaaaaaaaaaaaaee")
+		_, _ = w.Write(torrentData)
+	}))
+	defer ts.Close()
+
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{
+		categories: []qbt.Category{{Name: "Movies"}},
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	results := []qbt.SearchResult{
+		{FileName: "Debian 12", FileSize: 4096, NbSeeders: 20, FileURL: ts.URL + "/torrent"},
+	}
+	h.storeSearch(1, &SearchState{
+		ChatID:    1,
+		MessageID: 100,
+		JobID:     789,
+		Results:   results,
+		Total:     1,
+	})
+
+	update := newCallbackUpdate(1, "cb-sc", "sc:789:0")
+
+	origFn := downloadSearchTorrentFn
+	defer func() { downloadSearchTorrentFn = origFn }()
+
+	downloadSearchTorrentFn = func(ctx context.Context, client *http.Client, url string) ([]byte, error) {
+		return downloadFileURL(ctx, ts.Client(), ts.URL+"/torrent")
+	}
+
+	h.HandleUpdate(context.Background(), update)
+
+	if !sender.hasText("Select category for this torrent:") {
+		t.Fatalf("expected category prompt, got: %v", sender.sentTexts())
+	}
+	if len(sender.sentMessages) < 2 {
+		t.Fatalf("expected at least 2 requests (category msg + answerCallback), got %d", len(sender.sentMessages))
+	}
+	pending := h.takePending(1)
+	if pending == nil || len(pending.FileData) == 0 || pending.FileName != "Debian 12.torrent" {
+		t.Fatalf("expected pending file download, got: %v", pending)
+	}
+}
+
+func TestCallback_SearchConfirmCallback_HTTPDownload_Failure(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	results := []qbt.SearchResult{
+		{FileName: "NotATorrent", FileSize: 100, NbSeeders: 1, FileURL: "https://example.com/bad.torrent"},
+	}
+	h.storeSearch(1, &SearchState{
+		ChatID:    1,
+		MessageID: 100,
+		JobID:     101,
+		Results:   results,
+		Total:     1,
+	})
+
+	update := newCallbackUpdate(1, "cb-sc", "sc:101:0")
+
+	origFn := downloadSearchTorrentFn
+	defer func() { downloadSearchTorrentFn = origFn }()
+
+	downloadSearchTorrentFn = func(ctx context.Context, client *http.Client, url string) ([]byte, error) {
+		return nil, fmt.Errorf("download failed: unexpected content-type \"text/html\"")
+	}
+
+	h.HandleUpdate(context.Background(), update)
+
+	if len(sender.sentMessages) < 2 {
+		t.Fatalf("expected at least 2 requests (answerCallback + editMessage), got %d", len(sender.sentMessages))
+	}
+
+	if !sender.hasEditText("Failed to download torrent") {
+		t.Fatalf("expected download failure error, got edits: %v", sender.editTexts())
+	}
+}
+
+func TestCallback_SearchConfirmCallback_HTTPDownload_SSRFReject(t *testing.T) {
+	// TODO: Needs downloadSearchTorrentFn injection to test.
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	results := []qbt.SearchResult{
+		{FileName: "Malicious", FileSize: 100, NbSeeders: 1, FileURL: "http://10.0.0.1/torrent"},
+	}
+	h.storeSearch(1, &SearchState{
+		ChatID:    1,
+		MessageID: 100,
+		JobID:     202,
+		Results:   results,
+		Total:     1,
+	})
+
+	update := newCallbackUpdate(1, "cb-sc", "sc:202:0")
+
+	origFn := downloadSearchTorrentFn
+	defer func() { downloadSearchTorrentFn = origFn }()
+
+	downloadSearchTorrentFn = func(ctx context.Context, client *http.Client, url string) ([]byte, error) {
+		return nil, fmt.Errorf("unsafe hostname: host %q is private", "10.0.0.1")
+	}
+
+	h.HandleUpdate(context.Background(), update)
+
+	if !sender.hasEditText("Failed to download torrent") {
+		t.Fatalf("expected download failure error, got edits: %v", sender.editTexts())
 	}
 }
 
