@@ -58,13 +58,13 @@ func newDownloadClient() *http.Client {
 	}
 }
 
-// downloadSearchTorrent fetches raw bytes from url with safety checks:
+// downloadFile fetches raw bytes from url with safety checks:
 //   - only http/https schemes are accepted
-//   - SSRF protection via isPublicHostname
+//   - if checkSSRF is true, validates hostname via ssrfCheck
 //   - response must be 200 OK
 //   - Content-Type must not be text/html
 //   - body is limited to 10 MB
-func downloadSearchTorrent(ctx context.Context, client *http.Client, urlStr string) ([]byte, error) {
+func downloadFile(ctx context.Context, client *http.Client, urlStr string, checkSSRF bool) ([]byte, error) {
 	u, err := url.Parse(urlStr)
 	if err != nil {
 		return nil, fmt.Errorf("parse url: %w", err)
@@ -74,8 +74,10 @@ func downloadSearchTorrent(ctx context.Context, client *http.Client, urlStr stri
 		return nil, fmt.Errorf("unsupported scheme %q", u.Scheme)
 	}
 
-	if err := ssrfCheck(u.Hostname()); err != nil {
-		return nil, fmt.Errorf("unsafe hostname: %w", err)
+	if checkSSRF {
+		if err := ssrfCheck(u.Hostname()); err != nil {
+			return nil, fmt.Errorf("unsafe hostname: %w", err)
+		}
 	}
 
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, nil)
@@ -120,8 +122,21 @@ func downloadSearchTorrent(ctx context.Context, client *http.Client, urlStr stri
 	return data, nil
 }
 
-// downloadSearchTorrentFn is a package-level variable for test injection.
-var downloadSearchTorrentFn = downloadSearchTorrent
+// downloadSearchTorrent calls downloadFile with SSRF protection enabled.
+// Use for automated/untrusted download paths.
+func downloadSearchTorrent(ctx context.Context, client *http.Client, urlStr string) ([]byte, error) {
+	return downloadFile(ctx, client, urlStr, true)
+}
+
+// downloadUserTorrent calls downloadFile without SSRF protection.
+// Use for user-initiated downloads from search results, where the URL came
+// from qBittorrent's trusted search plugins and the user explicitly chose it.
+func downloadUserTorrent(ctx context.Context, client *http.Client, urlStr string) ([]byte, error) {
+	return downloadFile(ctx, client, urlStr, false)
+}
+
+// downloadUserTorrentFn is a package-level variable for test injection.
+var downloadUserTorrentFn = downloadUserTorrent
 
 // ssrfCheck is a package-level variable for test injection. Tests that use
 // httptest servers on loopback can set it to nil.

@@ -48,7 +48,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to create Telegram bot: %v", err)
 	}
-	botAPI.Client = &http.Client{Timeout: 30 * time.Second}
+	botAPI.Client = &http.Client{Timeout: 120 * time.Second}
 	log.Printf("Authorized on account %s", botAPI.Self.UserName)
 
 	// 2a. Register bot commands with Telegram (fail-open).
