@@ -699,7 +699,7 @@ func TestCallback_RemoveDelete_DeleteError_AnswersWithError(t *testing.T) {
 	sender := &mockSender{}
 	hash := strings.Repeat("f", 40)
 	qbtClient := &mockQBTClient{
-		deleteErr: fmt.Errorf("qbt unavailable"),
+		deleteErr: errors.New("qbt unavailable"),
 	}
 	auth := NewAuthorizer([]int64{1})
 	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
@@ -881,6 +881,7 @@ func TestParseFileSelectCallback_NegativeFileIndex_ReturnsError(t *testing.T) {
 	hash := strings.Repeat("a", 40)
 	// fs:<hash>:<fileIndex>:<filePage>:<filterChar>:<listPage>
 	data := hash + ":-1:1:a:1"
+	//nolint:dogsled // callback data parser returns many values; discarding unused ones is intentional
 	_, _, _, _, _, err := parseFileSelectCallback(data)
 	if err == nil {
 		t.Fatal("expected error for negative fileIndex, got nil")
@@ -941,6 +942,7 @@ func TestParseFilePriorityCallback_NegativeFileIndex_ReturnsError(t *testing.T) 
 	hash := strings.Repeat("b", 40)
 	// fp:<hash>:<fileIndex>:<priority>:<filePage>:<filterChar>:<listPage>
 	data := hash + ":-1:1:1:a:1"
+	//nolint:dogsled // callback data parser returns many values; discarding unused ones is intentional
 	_, _, _, _, _, _, err := parseFilePriorityCallback(data)
 	if err == nil {
 		t.Fatal("expected error for negative fileIndex, got nil")
@@ -1168,7 +1170,7 @@ func TestCallbackFL_ListFilesError(t *testing.T) {
 	hash := strings.Repeat("b", 40)
 	qbtClient := &mockQBTClient{
 		torrents:     []qbt.Torrent{{Hash: hash, Name: "Broken"}},
-		listFilesErr: fmt.Errorf("qbt unavailable"),
+		listFilesErr: errors.New("qbt unavailable"),
 	}
 	auth := NewAuthorizer([]int64{1})
 	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
@@ -1302,7 +1304,7 @@ func TestCallbackFP_SetPriorityError_AnswersWithError(t *testing.T) {
 	sender := &mockSender{}
 	hash := strings.Repeat("f", 40)
 	qbtClient := &mockQBTClient{
-		setFilePriorityErr: fmt.Errorf("qbt unavailable"),
+		setFilePriorityErr: errors.New("qbt unavailable"),
 	}
 	auth := NewAuthorizer([]int64{1})
 	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
@@ -1818,7 +1820,7 @@ func TestCallback_SearchConfirmCallback_HTTPDownload_Failure(t *testing.T) {
 	defer func() { downloadUserTorrentFn = origFn }()
 
 	downloadUserTorrentFn = func(ctx context.Context, client *http.Client, url string) ([]byte, error) {
-		return nil, fmt.Errorf("download failed: unexpected content-type \"text/html\"")
+		return nil, errors.New("download failed: unexpected content-type \"text/html\"")
 	}
 
 	h.HandleUpdate(context.Background(), update)

@@ -126,7 +126,7 @@ func truncateName(name string) string {
 // Telegram-safe message string. The output is guaranteed to stay under
 // MaxMessageLength (4096) characters.
 //
-// page and totalPages are 1-based.
+// Page and totalPages are 1-based.
 func FormatTorrentList(torrents []qbt.Torrent, page, totalPages int) string {
 	if len(torrents) == 0 {
 		return "No torrents found."
@@ -171,7 +171,7 @@ func TotalPages(totalItems, perPage int) int {
 }
 
 // PaginationKeyboard builds an inline keyboard row with Prev / current-page /
-// Next buttons. filterPrefix must be "all" or "act".
+// Next buttons. FilterPrefix must be "all" or "act".
 //
 // The Prev button is omitted when currentPage == 1; the Next button is omitted
 // when currentPage == totalPages. The center button has callback data "noop".
@@ -227,6 +227,8 @@ func FormatSize(b int64) string {
 
 // FormatTorrentDetail renders a single torrent's full metadata as a
 // Telegram-safe message string.
+//
+//nolint:gocritic // t is passed by value intentionally; changing to pointer would require interface changes
 func FormatTorrentDetail(t qbt.Torrent) string {
 	cat := t.Category
 	if cat == "" {
@@ -375,12 +377,12 @@ func PriorityLabel(p qbt.FilePriority) string {
 // FormatFileList formats a paginated list of torrent files into a single
 // Telegram-safe message string (≤4096 chars).
 //
-// torrentName is shown as a header. page and totalPages are 1-based.
+// TorrentName is shown as a header. Page and totalPages are 1-based.
 func FormatFileList(torrentName string, files []qbt.TorrentFile, page, totalPages int) string {
 	var sb strings.Builder
 
 	// Header: torrent name (truncated) + page indicator.
-	header := fmt.Sprintf("📁 Files: %s", truncateName(torrentName))
+	header := "📁 Files: " + truncateName(torrentName)
 	if totalPages > 1 {
 		header += fmt.Sprintf(" (Page %d/%d)", page, totalPages)
 	}
@@ -410,13 +412,6 @@ func FormatFileList(torrentName string, files []qbt.TorrentFile, page, totalPage
 	return sb.String()
 }
 
-// FileListKeyboard builds the inline keyboard for the file list view.
-//
-// Each visible file gets one tap button (fs: prefix). Pagination buttons use
-// pg:fl: prefix. A Back button uses bk:fl: to return to the torrent detail view.
-//
-// fileIndexOffset is the zero-based index of the first file in the current page
-// relative to the full file list (i.e. (filePage-1)*FilesPerPage).
 // FilesPageState holds pagination and navigation state for a file list page.
 // Used to reduce parameter counts in keyboard-building functions.
 type FilesPageState struct {
@@ -425,6 +420,13 @@ type FilesPageState struct {
 	ListPage   int
 }
 
+// FileListKeyboard builds the inline keyboard for the file list view.
+//
+// Each visible file gets one tap button (fs: prefix). Pagination buttons use
+// pg:fl: prefix. A Back button uses bk:fl: to return to the torrent detail view.
+//
+// fileIndexOffset is the zero-based index of the first file in the current page
+// relative to the full file list (i.e. (filePage-1)*FilesPerPage).
 func FileListKeyboard(
 	files []qbt.TorrentFile,
 	hash string,
@@ -553,7 +555,7 @@ func FormatSearchResults(results []qbt.SearchResult, query string, page, totalPa
 	return sb.String()
 }
 
-func SearchResultKeyboard(results []qbt.SearchResult, jobID int, page int) Keyboard {
+func SearchResultKeyboard(results []qbt.SearchResult, jobID, page int) Keyboard {
 	if len(results) == 0 {
 		return nil
 	}
@@ -576,7 +578,7 @@ func SearchPaginationKeyboard(jobID, currentPage, totalPages int) Keyboard {
 		return nil
 	}
 
-	var rows Keyboard
+	var rows = make(Keyboard, 0, 2)
 
 	var pagRow ButtonRow
 	if currentPage > 1 {
@@ -597,18 +599,20 @@ func SearchPaginationKeyboard(jobID, currentPage, totalPages int) Keyboard {
 			CallbackData: fmt.Sprintf("sp:%d:%d", jobID, currentPage+1),
 		})
 	}
-	rows = append(rows, pagRow)
-
-	rows = append(rows, ButtonRow{
-		Button{Text: "Sort: Seeders", CallbackData: fmt.Sprintf("ss:%d:seeders", jobID)},
-		Button{Text: "Sort: Size", CallbackData: fmt.Sprintf("ss:%d:size", jobID)},
-		Button{Text: "Sort: Date", CallbackData: fmt.Sprintf("ss:%d:date", jobID)},
-	})
+	rows = append(rows,
+		pagRow,
+		ButtonRow{
+			Button{Text: "Sort: Seeders", CallbackData: fmt.Sprintf("ss:%d:seeders", jobID)},
+			Button{Text: "Sort: Size", CallbackData: fmt.Sprintf("ss:%d:size", jobID)},
+			Button{Text: "Sort: Date", CallbackData: fmt.Sprintf("ss:%d:date", jobID)},
+		})
 
 	return rows
 }
 
 // FormatSearchConfirm builds a confirmation message for a selected search result.
+//
+//nolint:gocritic // result is passed by value intentionally; changing to pointer would require interface changes
 func FormatSearchConfirm(result qbt.SearchResult) string {
 	return fmt.Sprintf(
 		"Add this torrent?\n\n%s\nSize: %s\nSeeders: %d\nLeechers: %d",
@@ -630,7 +634,7 @@ func SearchCancelKeyboard(jobID int) Keyboard {
 }
 
 // SearchConfirmKeyboard builds the confirmation keyboard for adding a search result.
-func SearchConfirmKeyboard(jobID int, resultIdx int, page int) Keyboard {
+func SearchConfirmKeyboard(jobID, resultIdx, page int) Keyboard {
 	return Keyboard{
 		ButtonRow{
 			Button{Text: "Add this torrent", CallbackData: fmt.Sprintf("sc:%d:%d", jobID, resultIdx)},
@@ -663,7 +667,7 @@ func CategoryKeyboard(categories []qbt.Category) Keyboard {
 		// Back off to a valid UTF-8 boundary to avoid splitting a multi-byte sequence.
 		if len(data) > MaxCallbackData {
 			data = data[:MaxCallbackData]
-			for len(data) > 0 && !utf8.Valid([]byte(data)) {
+			for !utf8.Valid([]byte(data)) {
 				data = data[:len(data)-1]
 			}
 		}

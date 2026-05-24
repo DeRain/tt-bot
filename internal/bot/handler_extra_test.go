@@ -2,7 +2,7 @@ package bot
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -172,7 +172,7 @@ func TestHandler_ActiveCommand(t *testing.T) {
 
 func TestHandler_ListCommand_QBTError(t *testing.T) {
 	sender := &mockSender{}
-	qbtClient := &errorQBTClient{listErr: fmt.Errorf("connection refused")}
+	qbtClient := &errorQBTClient{listErr: errors.New("connection refused")}
 	auth := NewAuthorizer([]int64{1})
 	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
@@ -208,7 +208,7 @@ func TestCallback_PaginationInvalidPage_ReturnsError(t *testing.T) {
 
 func TestCallback_AddMagnetError(t *testing.T) {
 	sender := &mockSender{}
-	qbtClient := &mockQBTClient{addMagnetErr: fmt.Errorf("qbt unavailable")}
+	qbtClient := &mockQBTClient{addMagnetErr: errors.New("qbt unavailable")}
 	auth := NewAuthorizer([]int64{1})
 	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 

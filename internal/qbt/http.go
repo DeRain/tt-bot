@@ -19,7 +19,7 @@ import (
 )
 
 // btihV1RE matches a v1 BitTorrent info-hash in a urn:btih:<HASH> xt value.
-// A v1 hash is exactly 40 hexadecimal characters (SHA-1). v2 (64-char SHA-256)
+// A v1 hash is exactly 40 hexadecimal characters (SHA-1). V2 (64-char SHA-256)
 // is not supported by this bot yet (see docs/features/torrent-control/decisions.md).
 var btihV1RE = regexp.MustCompile(`(?i)^urn:btih:([0-9a-f]{40})$`)
 
@@ -226,7 +226,7 @@ func (c *HTTPClient) doWithAuth(req *http.Request) (*http.Response, error) {
 // cookie (either the legacy "SID" or the v5.2+ "QBT_SID_<port>" variant).
 // When sid is empty (auth-bypass mode) no session cookie is added; stale
 // cookies are still stripped so the server sees a clean request.
-// name defaults to "SID" when empty for backwards compatibility.
+// Name defaults to "SID" when empty for backwards compatibility.
 func attachCookie(req *http.Request, name, sid string) {
 	if name == "" {
 		name = "SID"
@@ -241,12 +241,13 @@ func attachCookie(req *http.Request, name, sid string) {
 		}
 	}
 	if sid != "" {
+		//nolint:gosec // qBittorrent SID cookie; Secure/HttpOnly not applicable for local Docker deployment
 		req.AddCookie(&http.Cookie{Name: name, Value: sid})
 	}
 }
 
 // AddMagnet adds a torrent by magnet URI and assigns it to category.
-func (c *HTTPClient) AddMagnet(ctx context.Context, magnet string, category string) error {
+func (c *HTTPClient) AddMagnet(ctx context.Context, magnet, category string) error {
 	if err := validateMagnetURI(magnet); err != nil {
 		return fmt.Errorf("qbt add magnet: %w", err)
 	}
@@ -364,7 +365,7 @@ func (c *HTTPClient) ListTorrents(ctx context.Context, opts ListOptions) ([]Torr
 	}
 	u.RawQuery = q.Encode()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("qbt list torrents: build request: %w", err)
 	}
@@ -482,7 +483,7 @@ func (c *HTTPClient) ListFiles(ctx context.Context, hash string) ([]TorrentFile,
 	q.Set("hash", hash)
 	u.RawQuery = q.Encode()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("qbt list files: build request: %w", err)
 	}
@@ -540,8 +541,7 @@ func (c *HTTPClient) SetFilePriority(ctx context.Context, hash string, fileIndic
 
 // Categories returns all configured categories sorted by name.
 func (c *HTTPClient) Categories(ctx context.Context) ([]Category, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		c.baseURL+"/api/v2/torrents/categories", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/v2/torrents/categories", http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("qbt categories: build request: %w", err)
 	}
@@ -607,8 +607,7 @@ func (c *HTTPClient) StartSearch(ctx context.Context, pattern string) (int, erro
 }
 
 func (c *HTTPClient) SearchStatus(ctx context.Context, jobID int) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		c.baseURL+"/api/v2/search/status?id="+strconv.Itoa(jobID), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/v2/search/status?id="+strconv.Itoa(jobID), http.NoBody)
 	if err != nil {
 		return "", fmt.Errorf("qbt search status: build request: %w", err)
 	}
@@ -639,7 +638,7 @@ func (c *HTTPClient) SearchStatus(ctx context.Context, jobID int) (string, error
 	return "", fmt.Errorf("qbt search status: job %d not found", jobID)
 }
 
-func (c *HTTPClient) SearchResults(ctx context.Context, jobID int, offset, limit int) ([]SearchResult, int, error) {
+func (c *HTTPClient) SearchResults(ctx context.Context, jobID, offset, limit int) ([]SearchResult, int, error) {
 	u, err := url.Parse(c.baseURL + "/api/v2/search/results")
 	if err != nil {
 		return nil, 0, fmt.Errorf("qbt search results: parse URL: %w", err)
@@ -651,7 +650,7 @@ func (c *HTTPClient) SearchResults(ctx context.Context, jobID int, offset, limit
 	q.Set("offset", strconv.Itoa(offset))
 	u.RawQuery = q.Encode()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), http.NoBody)
 	if err != nil {
 		return nil, 0, fmt.Errorf("qbt search results: build request: %w", err)
 	}

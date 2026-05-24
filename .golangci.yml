@@ -1,16 +1,177 @@
 version: "2"
+
 linters:
   enable:
-    - misspell
+    # Bug detection (near-zero false positives)
+    - bodyclose        # Unclosed HTTP response bodies
+    - copyloopvar      # Unnecessary loop var copies (Go 1.22+)
+    - dogsled          # Excessive blank identifiers (max: 3)
+    - durationcheck    # time.Duration multiplication bugs
+    - errcheck         # Unchecked errors
+    - errorlint        # %w vs %v, error type assertions
+    - gosec            # Security scanning
+    - govet            # Standard Go vet
+    - misspell         # Spelling (locale: US)
+    - nakedret         # Naked returns in functions (max 5 lines)
+    - nestif           # Deeply nested if statements (min 4)
+    - nilnesserr       # Nil error detection (subsumes nilerr)
+    - nolintlint       # Well-formed nolint directives
+    - perfsprint       # fmt.Sprintf → faster alternatives
+    - prealloc         # Slice pre-allocation hints
+    - predeclared      # Shadowing of built-in names
+    - staticcheck      # Static analysis (checks: all)
+    - thelper          # t.Helper() in test helpers
+    - unconvert        # Unnecessary type conversions
+    - unused           # Dead code removal
+    - usestdlibvars    # Use stdlib constants
+
+    # Style & quality (with explicit settings)
+    - gocognit         # Cognitive complexity (min 15)
+    - goconst          # Repeated string → constants (min occurrences: 5)
+    - gocritic         # Style/performance diagnostics
+    - godot            # Comment periods
+    - intrange         # Modern integer range loops
+    - revive           # Metalinter (selective rules)
+    - tagalign         # Aligned struct tags
+    - whitespace       # Consistent blank lines
+
+    # Line length
+    - lll              # Max line length: 150
+
   settings:
+    dogsled:
+      max-blank-identifiers: 3
+
+    errcheck:
+      check-type-assertions: true
+      exclude-functions:
+        - io.Copy
+        - (*net/http.Response).Write
+        - (net/http.ResponseWriter).Write
+        - io.WriteString
+        - (*os.File).Close
+        - (*bytes.Buffer).WriteString
+        - (*fmt.Stringer).String
+
+    gocognit:
+      min-complexity: 20
+
+    goconst:
+      min-len: 3
+      min-occurrences: 5
+      match-constant: true
+      numbers: false
+      ignore-tests: true
+
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - performance
+        - style
+      settings:
+        hugeParam:
+          sizeThreshold: 90
+        rangeValCopy:
+          sizeThreshold: 160
+
+    godot:
+      scope: toplevel
+      capital: true
+      period: true
+      exclude:
+        - '^(\d+\.|// ===|// ---)'
+
+    gosec:
+      excludes:
+        - G104  # Unchecked errors (errcheck handles this)
+        - G115  # Integer overflow conversion (known bugs #1212, #1187, #1254)
+
+    govet:
+      disable:
+        - fieldalignment
+
+    lll:
+      line-length: 150
+      tab-width: 4
+
     misspell:
       locale: US
+
+    nakedret:
+      max-func-lines: 5
+
+    nestif:
+      min-complexity: 4
+
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+
+    prealloc:
+      simple: true
+      for-loops: true
+
+    revive:
+      confidence: 0.8
+      severity: warning
+      rules:
+        - name: blank-imports
+        - name: comment-spacings
+        - name: context-as-argument
+        - name: dot-imports
+        - name: var-naming
+
+    staticcheck:
+      checks:
+        - all
+
+    tagalign:
+      align: true
+      sort: false
+      strict: false
+
+    thelper:
+      benchmark:
+        begin: true
+        first: true
+        name: true
+      tb:
+        begin: true
+        first: true
+        name: true
+      test:
+        begin: true
+        first: true
+        name: true
+      fuzz:
+        begin: true
+        first: true
+        name: true
+
+    whitespace:
+      multi-if: false
+      multi-func: false
+
   exclusions:
     generated: lax
     paths:
       - third_party$
       - builtin$
       - examples$
+    rules:
+      - path: _test\.go$
+        linters:
+          - errcheck
+          - gosec
+          - gocritic
+          - godot
+          - gocognit
+          - goconst
+          - lll
+      - path: cmd/bot/main\.go$
+        linters:
+          - godot
+
 formatters:
   enable:
     - gofmt

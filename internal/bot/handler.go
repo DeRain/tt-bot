@@ -21,13 +21,13 @@ import (
 )
 
 const (
-	// pendingTTL is the maximum age of a pending torrent before it is evicted.
+	// PendingTTL is the maximum age of a pending torrent before it is evicted.
 	pendingTTL = 5 * time.Minute
-	// cleanupInterval is how often the pending-map cleanup goroutine runs.
+	// CleanupInterval is how often the pending-map cleanup goroutine runs.
 	cleanupInterval = 1 * time.Minute
-	// actionPollInterval is how often to re-check torrent state after an action.
+	// ActionPollInterval is how often to re-check torrent state after an action.
 	actionPollInterval = 200 * time.Millisecond
-	// actionPollTimeout is the maximum time to wait for a state change after an action.
+	// ActionPollTimeout is the maximum time to wait for a state change after an action.
 	actionPollTimeout = 2 * time.Second
 
 	searchPollInterval = 1 * time.Second
@@ -37,7 +37,7 @@ const (
 	searchTTL          = 10 * time.Minute
 	searchPromptTTL    = 5 * time.Minute
 
-	// maxConcurrentRefreshes limits the number of views refreshed in parallel
+	// MaxConcurrentRefreshes limits the number of views refreshed in parallel
 	// per tick to prevent burst API calls when many live views are active.
 	maxConcurrentRefreshes = 5
 )
@@ -133,8 +133,8 @@ type HandlerOptions struct {
 
 // New constructs a Handler and starts background goroutines for pending entry
 // cleanup and, when opts.ViewRefreshInterval > 0, auto-refresh of list/detail views.
-// botToken is required to construct the file-download URL for .torrent uploads.
-// ctx controls the lifetime of the background goroutines.
+// BotToken is required to construct the file-download URL for .torrent uploads.
+// Ctx controls the lifetime of the background goroutines.
 func New(ctx context.Context, sender Sender, qbtClient qbt.Client, auth *Authorizer, opts HandlerOptions) *Handler {
 	h := &Handler{
 		sender:              sender,
@@ -212,6 +212,8 @@ func (h *Handler) evictExpired() {
 
 // HandleUpdate is the main entry point for incoming Telegram updates.
 // It routes callback queries and messages to the appropriate sub-handler.
+//
+//nolint:gocritic // passed by value intentionally — changing to pointer would require interface signature changes
 func (h *Handler) HandleUpdate(ctx context.Context, update tgbotapi.Update) {
 	if update.CallbackQuery != nil {
 		h.handleCallback(ctx, update.CallbackQuery)
@@ -317,6 +319,7 @@ func (h *Handler) launchSearch(ctx context.Context, chatID int64, query string, 
 	}()
 }
 
+//nolint:gocognit // search polling loop with timeout, error handling, and status dispatch
 func (h *Handler) pollSearchResults(ctx context.Context, chatID int64, query string, replyMsgID int) {
 	jobID, err := h.qbt.StartSearch(ctx, query)
 	if err != nil {
@@ -336,7 +339,8 @@ func (h *Handler) pollSearchResults(ctx context.Context, chatID int64, query str
 			if ctx.Err() == context.DeadlineExceeded {
 				h.editOrReply(chatID, replyMsgID, "Search timed out. Please try again later.")
 			}
-			go func() {
+
+			go func() { //nolint:gosec // goroutine uses context copy; outlives the parent request scope
 				cleanCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()
 				if err := h.qbt.StopSearch(cleanCtx, jobID); err != nil {
@@ -351,7 +355,7 @@ func (h *Handler) pollSearchResults(ctx context.Context, chatID int64, query str
 			pollCount++
 			if pollCount >= maxSearchPolls {
 				h.editOrReply(chatID, replyMsgID, "Search timed out. Please try again later.")
-				go func() {
+				go func() { //nolint:gosec // goroutine uses context copy; outlives the parent request scope
 					cleanCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 					defer cancel()
 					if err := h.qbt.StopSearch(cleanCtx, jobID); err != nil {
@@ -430,7 +434,7 @@ func (h *Handler) editOrReply(chatID int64, replyMsgID int, text string) {
 	h.replyText(chatID, text)
 }
 
-func (h *Handler) sendSearchResultsPage(chatID int64, state *SearchState, page int, messageID int) int {
+func (h *Handler) sendSearchResultsPage(chatID int64, state *SearchState, page, messageID int) int {
 	totalPages := formatter.TotalPages(len(state.Results), formatter.SearchResultsPerPage)
 	if page < 1 {
 		page = 1
@@ -449,11 +453,13 @@ func (h *Handler) sendSearchResultsPage(chatID int64, state *SearchState, page i
 		pageResults = state.Results[offset:end]
 	}
 
-	text := formatter.FormatSearchResults(pageResults, state.Query, page, totalPages, formatter.SearchSortInfo{Field: state.SortField, Asc: state.SortAsc})
+	text := formatter.FormatSearchResults(pageResults, state.Query, page, totalPages,
+		formatter.SearchSortInfo{Field: state.SortField, Asc: state.SortAsc})
 	selectionKB := formatter.SearchResultKeyboard(pageResults, state.JobID, page)
 	paginationKB := formatter.SearchPaginationKeyboard(state.JobID, page, totalPages)
 	cancelKB := formatter.SearchCancelKeyboard(state.JobID)
 
+	//nolint:prealloc // capacity hint is not functionally testable; the alloc is correct regardless of hint
 	var combined formatter.Keyboard
 	combined = append(combined, selectionKB...)
 	combined = append(combined, paginationKB...)
@@ -608,7 +614,7 @@ func (h *Handler) downloadFile(ctx context.Context, filePath string) ([]byte, er
 // It is a package-level function so that tests can call it directly with
 // a local httptest server URL.
 func downloadFileURL(ctx context.Context, client *http.Client, url string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)
 	}
@@ -757,7 +763,7 @@ func (h *Handler) editMessageText(chatID int64, messageID int, text string, kb *
 
 // answerCallback dismisses the loading spinner on a callback query button.
 // Uses Request instead of Send because Telegram returns bool, not Message.
-func (h *Handler) answerCallback(callbackID string, text string) {
+func (h *Handler) answerCallback(callbackID, text string) {
 	answer := tgbotapi.NewCallback(callbackID, text)
 	if _, err := h.sender.Request(answer); err != nil {
 		log.Printf("bot: answer callback error: %v", err)
