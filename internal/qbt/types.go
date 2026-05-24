@@ -77,3 +77,14 @@ type TorrentFile struct {
 	Progress float64      `json:"progress"`
 	Priority FilePriority `json:"priority"`
 }
+
+type SearchResult struct {
+	FileName   string `json:"fileName"`
+	FileSize   int64  `json:"fileSize"`
+	FileURL    string `json:"fileUrl"`
+	NbSeeders  int    `json:"nbSeeders"`
+	NbLeechers int    `json:"nbLeechers"`
+	SiteURL    string `json:"siteUrl"`
+	DescrLink  string `json:"descrLink"`
+	PubDate    int64  `json:"pubDate"`
+}

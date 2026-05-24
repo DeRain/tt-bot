@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
@@ -174,12 +175,33 @@ func (h *Handler) handleCallback(ctx context.Context, cq *tgbotapi.CallbackQuery
 	case strings.HasPrefix(data, "fp:"):
 		h.handleFilePriorityCallback(ctx, cq, strings.TrimPrefix(data, "fp:"))
 
+	case strings.HasPrefix(data, "sr:") || strings.HasPrefix(data, "sp:") ||
+		strings.HasPrefix(data, "sx:") || strings.HasPrefix(data, "ss:") ||
+		strings.HasPrefix(data, "sc:") || strings.HasPrefix(data, "sb:"):
+		h.handleSearchCallback(ctx, cq, data)
+
 	case data == "noop":
-		// Page indicator button — dismiss spinner, do nothing.
 		h.answerCallback(cq.ID, "")
 
 	default:
 		h.answerCallback(cq.ID, "Unknown action.")
+	}
+}
+
+func (h *Handler) handleSearchCallback(ctx context.Context, cq *tgbotapi.CallbackQuery, data string) {
+	switch {
+	case strings.HasPrefix(data, "sr:"):
+		h.handleSearchSelectCallback(ctx, cq, strings.TrimPrefix(data, "sr:"))
+	case strings.HasPrefix(data, "sp:"):
+		h.handleSearchPageCallback(ctx, cq, strings.TrimPrefix(data, "sp:"))
+	case strings.HasPrefix(data, "sx:"):
+		h.handleSearchCancelCallback(ctx, cq, strings.TrimPrefix(data, "sx:"))
+	case strings.HasPrefix(data, "ss:"):
+		h.handleSearchSortCallback(ctx, cq, strings.TrimPrefix(data, "ss:"))
+	case strings.HasPrefix(data, "sc:"):
+		h.handleSearchConfirmCallback(ctx, cq, strings.TrimPrefix(data, "sc:"))
+	case strings.HasPrefix(data, "sb:"):
+		h.handleSearchBackCallback(ctx, cq, strings.TrimPrefix(data, "sb:"))
 	}
 }
 
@@ -954,4 +976,187 @@ func (h *Handler) handleRemoveCancelCallback(ctx context.Context, cq *tgbotapi.C
 		FilterChar:  filterChar,
 		Page:        page,
 	})
+}
+
+func (h *Handler) handleSearchSelectCallback(ctx context.Context, cq *tgbotapi.CallbackQuery, data string) {
+	parts := strings.SplitN(data, ":", 2)
+	if len(parts) != 2 {
+		h.answerCallback(cq.ID, "Invalid action.")
+		return
+	}
+	jobID, err := strconv.Atoi(parts[0])
+	if err != nil {
+		h.answerCallback(cq.ID, "Invalid action.")
+		return
+	}
+	idx, err := strconv.Atoi(parts[1])
+	if err != nil {
+		h.answerCallback(cq.ID, "Invalid action.")
+		return
+	}
+
+	state := h.getSearch(cq.Message.Chat.ID)
+	if state == nil || state.JobID != jobID {
+		h.answerCallback(cq.ID, "Search expired. Please try again.")
+		return
+	}
+
+	if idx < 0 || idx >= len(state.Results) {
+		h.answerCallback(cq.ID, "Invalid result.")
+		return
+	}
+
+	result := state.Results[idx]
+	text := formatter.FormatSearchConfirm(result)
+	page := idx/formatter.SearchResultsPerPage + 1
+	kb := toTGKeyboard(formatter.SearchConfirmKeyboard(jobID, idx, page))
+
+	h.answerCallback(cq.ID, "")
+	h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &kb)
+}
+
+func (h *Handler) handleSearchPageCallback(ctx context.Context, cq *tgbotapi.CallbackQuery, data string) {
+	parts := strings.SplitN(data, ":", 2)
+	if len(parts) != 2 {
+		h.answerCallback(cq.ID, "Invalid action.")
+		return
+	}
+	jobID, err := strconv.Atoi(parts[0])
+	if err != nil {
+		h.answerCallback(cq.ID, "Invalid action.")
+		return
+	}
+	page, err := strconv.Atoi(parts[1])
+	if err != nil {
+		h.answerCallback(cq.ID, "Invalid action.")
+		return
+	}
+
+	state := h.getSearch(cq.Message.Chat.ID)
+	if state == nil || state.JobID != jobID {
+		h.answerCallback(cq.ID, "Search expired. Please try again.")
+		return
+	}
+
+	h.sendSearchResultsPage(cq.Message.Chat.ID, state, page, state.MessageID)
+	h.answerCallback(cq.ID, "")
+}
+
+func (h *Handler) handleSearchCancelCallback(ctx context.Context, cq *tgbotapi.CallbackQuery, data string) {
+	jobID, err := strconv.Atoi(data)
+	if err != nil {
+		h.answerCallback(cq.ID, "Invalid action.")
+		return
+	}
+
+	state := h.takeSearch(cq.Message.Chat.ID)
+	if state == nil || state.JobID != jobID {
+		h.answerCallback(cq.ID, "Search expired.")
+		return
+	}
+
+	_ = h.qbt.DeleteSearch(ctx, jobID)
+	h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, "Search canceled.", nil)
+	h.answerCallback(cq.ID, "")
+}
+
+func (h *Handler) handleSearchSortCallback(ctx context.Context, cq *tgbotapi.CallbackQuery, data string) {
+	parts := strings.SplitN(data, ":", 2)
+	if len(parts) != 2 {
+		h.answerCallback(cq.ID, "Invalid action.")
+		return
+	}
+	jobID, err := strconv.Atoi(parts[0])
+	if err != nil {
+		h.answerCallback(cq.ID, "Invalid action.")
+		return
+	}
+	field := parts[1]
+
+	state := h.getSearch(cq.Message.Chat.ID)
+	if state == nil || state.JobID != jobID {
+		h.answerCallback(cq.ID, "Search expired. Please try again.")
+		return
+	}
+
+	if state.SortField == field {
+		state.SortAsc = !state.SortAsc
+	} else {
+		state.SortField = field
+		state.SortAsc = false
+	}
+
+	h.sortSearchResults(state.Results, state.SortField, state.SortAsc)
+	h.sendSearchResultsPage(cq.Message.Chat.ID, state, 1, state.MessageID)
+	h.answerCallback(cq.ID, "")
+}
+
+func (h *Handler) handleSearchConfirmCallback(ctx context.Context, cq *tgbotapi.CallbackQuery, data string) {
+	parts := strings.SplitN(data, ":", 2)
+	if len(parts) != 2 {
+		h.answerCallback(cq.ID, "Invalid action.")
+		return
+	}
+	jobID, err := strconv.Atoi(parts[0])
+	if err != nil {
+		h.answerCallback(cq.ID, "Invalid action.")
+		return
+	}
+	idx, err := strconv.Atoi(parts[1])
+	if err != nil {
+		h.answerCallback(cq.ID, "Invalid action.")
+		return
+	}
+
+	state := h.getSearch(cq.Message.Chat.ID)
+	if state == nil || state.JobID != jobID {
+		h.answerCallback(cq.ID, "Search expired. Please try again.")
+		return
+	}
+
+	if idx < 0 || idx >= len(state.Results) {
+		h.answerCallback(cq.ID, "Invalid result.")
+		return
+	}
+
+	result := state.Results[idx]
+	if !strings.HasPrefix(result.FileURL, "magnet:?") {
+		h.answerCallback(cq.ID, "")
+		h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, "This result doesn't have a magnet link. Try another result.", nil)
+		return
+	}
+
+	h.storePending(cq.Message.Chat.ID, &PendingTorrent{
+		MagnetLink: result.FileURL,
+		CreatedAt:  time.Now(),
+	})
+	h.sendCategoryKeyboard(ctx, cq.Message.Chat.ID, "Select category for this torrent:")
+	h.answerCallback(cq.ID, "")
+}
+
+func (h *Handler) handleSearchBackCallback(ctx context.Context, cq *tgbotapi.CallbackQuery, data string) {
+	parts := strings.SplitN(data, ":", 2)
+	if len(parts) != 2 {
+		h.answerCallback(cq.ID, "Invalid action.")
+		return
+	}
+	jobID, err := strconv.Atoi(parts[0])
+	if err != nil {
+		h.answerCallback(cq.ID, "Invalid action.")
+		return
+	}
+	page, err := strconv.Atoi(parts[1])
+	if err != nil {
+		h.answerCallback(cq.ID, "Invalid action.")
+		return
+	}
+
+	state := h.getSearch(cq.Message.Chat.ID)
+	if state == nil || state.JobID != jobID {
+		h.answerCallback(cq.ID, "Search expired. Please try again.")
+		return
+	}
+
+	h.sendSearchResultsPage(cq.Message.Chat.ID, state, page, state.MessageID)
+	h.answerCallback(cq.ID, "")
 }

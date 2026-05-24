@@ -44,4 +44,10 @@ type Client interface {
 	// the torrent identified by hash. fileIndices must be non-negative integers
 	// matching the Index field of TorrentFile entries returned by ListFiles.
 	SetFilePriority(ctx context.Context, hash string, fileIndices []int, priority FilePriority) error
+
+	StartSearch(ctx context.Context, pattern string) (int, error)
+	SearchStatus(ctx context.Context, jobID int) (string, error)
+	SearchResults(ctx context.Context, jobID int, offset, limit int) ([]SearchResult, int, error)
+	StopSearch(ctx context.Context, jobID int) error
+	DeleteSearch(ctx context.Context, jobID int) error
 }

@@ -2,6 +2,7 @@ package bot
 
 import (
 	"context"
+	"errors"
 	"io"
 	"strings"
 	"sync"
@@ -24,11 +25,13 @@ type mockSender struct {
 	fileToReturn tgbotapi.File
 	fileErr      error
 	requestErr   error
+	nextMsgID    int
 }
 
 func (m *mockSender) Send(msg tgbotapi.Chattable) (tgbotapi.Message, error) {
 	m.sentMessages = append(m.sentMessages, msg)
-	return tgbotapi.Message{}, nil
+	m.nextMsgID++
+	return tgbotapi.Message{MessageID: m.nextMsgID}, nil
 }
 
 func (m *mockSender) Request(c tgbotapi.Chattable) (*tgbotapi.APIResponse, error) {
@@ -91,6 +94,14 @@ type mockQBTClient struct {
 	setFilePriorityErr error
 	// setPriorityRecords tracks calls made to SetFilePriority.
 	setPriorityRecords []setPriorityCall
+
+	searchJobID        int
+	searchErr          error
+	searchStatus       string
+	searchResults      []qbt.SearchResult
+	searchTotal        int
+	stopSearchCalled   bool
+	deleteSearchCalled bool
 
 	mu sync.Mutex
 }
@@ -214,6 +225,34 @@ func (m *mockQBTClient) SetFilePriority(_ context.Context, hash string, fileIndi
 	return nil
 }
 
+func (m *mockQBTClient) StartSearch(_ context.Context, _ string) (int, error) {
+	if m.searchErr != nil {
+		return 0, m.searchErr
+	}
+	return m.searchJobID, nil
+}
+
+func (m *mockQBTClient) SearchStatus(_ context.Context, _ int) (string, error) {
+	if m.searchStatus != "" {
+		return m.searchStatus, nil
+	}
+	return "Stopped", nil
+}
+
+func (m *mockQBTClient) SearchResults(_ context.Context, _ int, _, _ int) ([]qbt.SearchResult, int, error) {
+	return m.searchResults, m.searchTotal, nil
+}
+
+func (m *mockQBTClient) StopSearch(_ context.Context, _ int) error {
+	m.stopSearchCalled = true
+	return nil
+}
+
+func (m *mockQBTClient) DeleteSearch(_ context.Context, _ int) error {
+	m.deleteSearchCalled = true
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -238,6 +277,25 @@ func newCommandUpdate(chatID, userID int64, command string) tgbotapi.Update {
 			Text: text,
 			Entities: []tgbotapi.MessageEntity{
 				{Type: "bot_command", Offset: 0, Length: len(text)},
+			},
+		},
+	}
+}
+
+//nolint:unused // used by e2e_test.go (integration-tagged)
+func newCommandUpdateWithArgs(chatID, userID int64, command string, args ...string) tgbotapi.Update {
+	cmdPrefix := "/" + command
+	text := cmdPrefix
+	if len(args) > 0 {
+		text = cmdPrefix + " " + strings.Join(args, " ")
+	}
+	return tgbotapi.Update{
+		Message: &tgbotapi.Message{
+			Chat: &tgbotapi.Chat{ID: chatID},
+			From: &tgbotapi.User{ID: userID},
+			Text: text,
+			Entities: []tgbotapi.MessageEntity{
+				{Type: "bot_command", Offset: 0, Length: len(cmdPrefix)},
 			},
 		},
 	}
@@ -832,4 +890,339 @@ func (m *mockSender) hasRequest() bool {
 func (m *mockSender) reset() {
 	m.sentMessages = nil
 	m.requestErr = nil
+}
+
+func TestHandleSearchCommand_WithQuery(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{
+		searchJobID: 123,
+		searchResults: []qbt.SearchResult{
+			{FileName: "Ubuntu 24.04", FileSize: 1024, NbSeeders: 10, FileURL: "magnet:?xt=urn:btih:abc"},
+		},
+		searchTotal: 1,
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	msg := &tgbotapi.Message{
+		Chat: &tgbotapi.Chat{ID: 1},
+		From: &tgbotapi.User{ID: 1},
+		Text: "/search ubuntu",
+		Entities: []tgbotapi.MessageEntity{
+			{Type: "bot_command", Offset: 0, Length: 7},
+		},
+	}
+	h.handleSearchCommand(context.Background(), msg)
+
+	if !sender.hasText("Searching for 'ubuntu'") {
+		t.Fatalf("expected searching message, got: %v", sender.sentTexts())
+	}
+}
+
+func TestHandleSearchCommand_WithoutQuery(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	msg := &tgbotapi.Message{
+		Chat: &tgbotapi.Chat{ID: 1},
+		From: &tgbotapi.User{ID: 1},
+		Text: "/search",
+		Entities: []tgbotapi.MessageEntity{
+			{Type: "bot_command", Offset: 0, Length: 7},
+		},
+	}
+	h.handleSearchCommand(context.Background(), msg)
+
+	if !sender.hasText("What to search for?") {
+		t.Fatalf("expected prompt message, got: %v", sender.sentTexts())
+	}
+
+	prompt := h.takeSearchPrompt(1)
+	if prompt == nil {
+		t.Fatal("expected search prompt to be stored")
+	}
+}
+
+func TestHandleSearchPromptReply(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{
+		searchJobID: 456,
+		searchResults: []qbt.SearchResult{
+			{FileName: "Debian ISO", FileSize: 2048, NbSeeders: 5, FileURL: "magnet:?xt=urn:btih:def"},
+		},
+		searchTotal: 1,
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	msg := &tgbotapi.Message{
+		Chat: &tgbotapi.Chat{ID: 1},
+		From: &tgbotapi.User{ID: 1},
+		Text: "debian",
+	}
+	h.handleSearchPromptReply(context.Background(), msg)
+
+	if !sender.hasText("Searching for 'debian'") {
+		t.Fatalf("expected searching message, got: %v", sender.sentTexts())
+	}
+}
+
+func TestHandleSearchPromptReply_Empty(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	msg := &tgbotapi.Message{
+		Chat: &tgbotapi.Chat{ID: 1},
+		From: &tgbotapi.User{ID: 1},
+		Text: "",
+	}
+	h.handleSearchPromptReply(context.Background(), msg)
+
+	if !sender.hasText("Usage: /search <query>") {
+		t.Fatalf("expected usage message, got: %v", sender.sentTexts())
+	}
+}
+
+func TestSortSearchResults_BySeeders(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	results := []qbt.SearchResult{
+		{FileName: "A", NbSeeders: 5},
+		{FileName: "B", NbSeeders: 20},
+		{FileName: "C", NbSeeders: 10},
+	}
+
+	h.sortSearchResults(results, "seeders", false)
+
+	if results[0].FileName != "B" || results[1].FileName != "C" || results[2].FileName != "A" {
+		t.Fatalf("expected descending seeders sort, got: %v", results)
+	}
+}
+
+func TestSortSearchResults_BySeedersAsc(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	results := []qbt.SearchResult{
+		{FileName: "A", NbSeeders: 5},
+		{FileName: "B", NbSeeders: 20},
+		{FileName: "C", NbSeeders: 10},
+	}
+
+	h.sortSearchResults(results, "seeders", true)
+
+	if results[0].FileName != "A" || results[1].FileName != "C" || results[2].FileName != "B" {
+		t.Fatalf("expected ascending seeders sort, got: %v", results)
+	}
+}
+
+func TestSortSearchResults_BySize(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	results := []qbt.SearchResult{
+		{FileName: "A", FileSize: 100},
+		{FileName: "B", FileSize: 500},
+		{FileName: "C", FileSize: 200},
+	}
+
+	h.sortSearchResults(results, "size", false)
+
+	if results[0].FileName != "B" || results[1].FileName != "C" || results[2].FileName != "A" {
+		t.Fatalf("expected descending size sort, got: %v", results)
+	}
+}
+
+func TestSortSearchResults_ByDate(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	results := []qbt.SearchResult{
+		{FileName: "A", PubDate: 100},
+		{FileName: "B", PubDate: 300},
+		{FileName: "C", PubDate: 200},
+	}
+
+	h.sortSearchResults(results, "date", false)
+
+	if results[0].FileName != "B" || results[1].FileName != "C" || results[2].FileName != "A" {
+		t.Fatalf("expected descending date sort, got: %v", results)
+	}
+}
+
+func TestStoreTakeGetSearch(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	state := &SearchState{ChatID: 1, Query: "test", JobID: 42}
+	h.storeSearch(1, state)
+
+	got := h.getSearch(1)
+	if got == nil || got.JobID != 42 {
+		t.Fatalf("expected stored search, got: %v", got)
+	}
+
+	taken := h.takeSearch(1)
+	if taken == nil || taken.JobID != 42 {
+		t.Fatalf("expected taken search, got: %v", taken)
+	}
+
+	if h.getSearch(1) != nil {
+		t.Fatal("expected search to be removed after take")
+	}
+}
+
+func TestStoreTakeSearchPrompt(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	prompt := &SearchPrompt{ChatID: 1}
+	h.storeSearchPrompt(1, prompt)
+
+	taken := h.takeSearchPrompt(1)
+	if taken == nil {
+		t.Fatal("expected taken prompt")
+	}
+
+	if h.takeSearchPrompt(1) != nil {
+		t.Fatal("expected prompt to be removed after take")
+	}
+}
+
+func TestSendSearchResultsPage(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	results := []qbt.SearchResult{
+		{FileName: "Ubuntu 24.04", FileSize: 1024, NbSeeders: 10, FileURL: "magnet:?xt=urn:btih:abc"},
+	}
+	state := &SearchState{
+		ChatID:    1,
+		Query:     "ubuntu",
+		JobID:     123,
+		Results:   results,
+		Total:     1,
+		SortField: "seeders",
+		SortAsc:   false,
+	}
+
+	msgID := h.sendSearchResultsPage(1, state, 1, 0)
+	if msgID == 0 {
+		t.Fatal("expected non-zero message ID")
+	}
+
+	if !sender.hasText("Search: ubuntu") {
+		t.Fatalf("expected search results text, got: %v", sender.sentTexts())
+	}
+}
+
+func TestSendSearchResultsPage_EmptyResults(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	state := &SearchState{
+		ChatID:    1,
+		Query:     "ubuntu",
+		JobID:     123,
+		Results:   []qbt.SearchResult{},
+		Total:     0,
+		SortField: "seeders",
+		SortAsc:   false,
+	}
+
+	msgID := h.sendSearchResultsPage(1, state, 1, 0)
+	if msgID == 0 {
+		t.Fatal("expected non-zero message ID")
+	}
+
+	if !sender.hasText("No torrents found") {
+		t.Fatalf("expected no results text, got: %v", sender.sentTexts())
+	}
+}
+
+func TestPollSearchResults(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{
+		searchJobID: 789,
+		searchResults: []qbt.SearchResult{
+			{FileName: "Ubuntu 24.04", FileSize: 1024, NbSeeders: 10, FileURL: "magnet:?xt=urn:btih:abc"},
+		},
+		searchTotal: 1,
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	h.pollSearchResults(ctx, 1, "ubuntu")
+
+	time.Sleep(100 * time.Millisecond)
+
+	if !sender.hasText("Search: ubuntu") && !sender.hasText("Searching for 'ubuntu'") {
+		t.Fatalf("expected search results or initial message, got: %v", sender.sentTexts())
+	}
+}
+
+func TestPollSearchResults_NoResults(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{
+		searchJobID:   789,
+		searchResults: []qbt.SearchResult{},
+		searchTotal:   0,
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	h.pollSearchResults(ctx, 1, "nothing")
+
+	time.Sleep(100 * time.Millisecond)
+
+	if !sender.hasText("No torrents found for 'nothing'") && !sender.hasText("Searching for 'nothing'") {
+		t.Fatalf("expected no results message, got: %v", sender.sentTexts())
+	}
+}
+
+func TestPollSearchResults_StartError(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{
+		searchErr: errors.New("search unavailable"),
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	h.pollSearchResults(ctx, 1, "ubuntu")
+
+	time.Sleep(100 * time.Millisecond)
+
+	if !sender.hasText("Search unavailable") && !sender.hasText("Searching for 'ubuntu'") {
+		t.Fatalf("expected unavailable message, got: %v", sender.sentTexts())
+	}
 }

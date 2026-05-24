@@ -368,6 +368,72 @@ func TestIntegration_AddTorrentFile(t *testing.T) {
 	}
 }
 
+// TestIntegration_StartSearch verifies that StartSearch initiates a search job
+func TestIntegration_StartSearch(t *testing.T) {
+	c := integrationClient(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := c.Login(ctx); err != nil {
+		t.Fatalf("Login() error = %v", err)
+	}
+
+	jobID, err := c.StartSearch(ctx, "ubuntu")
+	if err != nil {
+		t.Skipf("StartSearch() error = %v (Jackett may not be configured)", err)
+	}
+	if jobID <= 0 {
+		t.Errorf("StartSearch() jobID = %d, want > 0", jobID)
+	}
+
+	_ = c.DeleteSearch(ctx, jobID)
+}
+
+func TestIntegration_SearchFlow(t *testing.T) {
+	c := integrationClient(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	if err := c.Login(ctx); err != nil {
+		t.Fatalf("Login() error = %v", err)
+	}
+
+	jobID, err := c.StartSearch(ctx, "ubuntu")
+	if err != nil {
+		t.Skipf("StartSearch() error = %v (Jackett may not be configured)", err)
+	}
+
+	var status string
+	for attempt := 0; attempt < 30; attempt++ {
+		status, err = c.SearchStatus(ctx, jobID)
+		if err != nil {
+			t.Fatalf("SearchStatus() error = %v", err)
+		}
+		if status == "Stopped" {
+			break
+		}
+		time.Sleep(1 * time.Second)
+	}
+	if status != "Stopped" {
+		t.Fatalf("search did not stop within timeout; last status = %q", status)
+	}
+
+	results, total, err := c.SearchResults(ctx, jobID, 0, 100)
+	if err != nil {
+		t.Fatalf("SearchResults() error = %v", err)
+	}
+	if total < 0 {
+		t.Errorf("SearchResults() total = %d, want >= 0", total)
+	}
+	if results == nil {
+		t.Error("SearchResults() returned nil slice, want non-nil")
+	}
+
+	if err := c.DeleteSearch(ctx, jobID); err != nil {
+		t.Errorf("DeleteSearch() error = %v", err)
+	}
+}
+
 // TestIntegration_SetFilePriority verifies that SetFilePriority changes a
 // file's priority and that a follow-up ListFiles reflects the change.
 // TEST-8: REQ-4, AC-4.2, AC-4.4.

@@ -19,10 +19,24 @@
 # Test
 coverage.out
 
+# Python caches
+__pycache__/
+*.pyc
+
 # Docker volumes
 qbt-config/
+!testdata/qbt-config/
+testdata/qbt-config/*
 !testdata/qbt-config/qBittorrent.conf
+!testdata/qbt-config/nova3
 qbt-downloads/
+
+# Jackett test config (pre-seeded)
+!testdata/jackett-config/
+testdata/jackett-config/*
+!testdata/jackett-config/Jackett
+testdata/jackett-config/Jackett/*
+!testdata/jackett-config/Jackett/ServerConfig.json
 
 .mcp.json
 .sisyphus/

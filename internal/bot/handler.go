@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -27,19 +28,38 @@ const (
 	actionPollInterval = 200 * time.Millisecond
 	// actionPollTimeout is the maximum time to wait for a state change after an action.
 	actionPollTimeout = 2 * time.Second
+
+	searchPollInterval = 1 * time.Second
+	searchTimeout      = 30 * time.Second
+	searchResultsLimit = 100
+	searchTTL          = 10 * time.Minute
+	searchPromptTTL    = 5 * time.Minute
 )
 
 // PendingTorrent holds a torrent that the user has sent but has not yet been
 // assigned a category. It is stored in the Handler's pending map keyed by
 // chat ID and expires after pendingTTL.
 type PendingTorrent struct {
-	// MagnetLink is set when the user sends a magnet URI.
 	MagnetLink string
-	// FileData contains the raw .torrent file bytes when the user uploads a file.
-	FileData []byte
-	// FileName is the original filename of the uploaded .torrent file.
-	FileName string
-	// CreatedAt records when the entry was created for TTL eviction.
+	FileData   []byte
+	FileName   string
+	CreatedAt  time.Time
+}
+
+type SearchState struct {
+	ChatID    int64
+	MessageID int
+	Query     string
+	JobID     int
+	Results   []qbt.SearchResult
+	Total     int
+	SortField string
+	SortAsc   bool
+	CreatedAt time.Time
+}
+
+type SearchPrompt struct {
+	ChatID    int64
 	CreatedAt time.Time
 }
 
@@ -69,8 +89,6 @@ type LiveView struct {
 	LastContentHash string
 }
 
-// Handler dispatches incoming Telegram updates to the appropriate handler
-// functions. It owns the per-chat pending torrent state.
 type Handler struct {
 	sender     Sender
 	qbt        qbt.Client
@@ -80,7 +98,10 @@ type Handler struct {
 	pending    map[int64]*PendingTorrent
 	mu         sync.Mutex
 
-	// Auto-refresh for list and detail views.
+	searches      map[int64]*SearchState
+	searchPrompts map[int64]*SearchPrompt
+	searchMu      sync.Mutex
+
 	viewRefreshInterval time.Duration
 	liveViews           map[int64]*LiveView
 	liveViewsMu         sync.Mutex
@@ -107,6 +128,8 @@ func New(ctx context.Context, sender Sender, qbtClient qbt.Client, auth *Authori
 		token:               opts.BotToken,
 		httpClient:          &http.Client{Timeout: 30 * time.Second},
 		pending:             make(map[int64]*PendingTorrent),
+		searches:            make(map[int64]*SearchState),
+		searchPrompts:       make(map[int64]*SearchPrompt),
 		liveViews:           make(map[int64]*LiveView),
 		viewRefreshInterval: opts.ViewRefreshInterval,
 	}
@@ -132,16 +155,30 @@ func (h *Handler) runCleanup(ctx context.Context) {
 	}
 }
 
-// evictExpired removes all pending entries older than pendingTTL.
 func (h *Handler) evictExpired() {
-	h.mu.Lock()
-	defer h.mu.Unlock()
 	cutoff := time.Now().Add(-pendingTTL)
+	h.mu.Lock()
 	for chatID, pt := range h.pending {
 		if pt.CreatedAt.Before(cutoff) {
 			delete(h.pending, chatID)
 		}
 	}
+	h.mu.Unlock()
+
+	searchCutoff := time.Now().Add(-searchTTL)
+	promptCutoff := time.Now().Add(-searchPromptTTL)
+	h.searchMu.Lock()
+	for chatID, state := range h.searches {
+		if state.CreatedAt.Before(searchCutoff) {
+			delete(h.searches, chatID)
+		}
+	}
+	for chatID, prompt := range h.searchPrompts {
+		if prompt.CreatedAt.Before(promptCutoff) {
+			delete(h.searchPrompts, chatID)
+		}
+	}
+	h.searchMu.Unlock()
 }
 
 // HandleUpdate is the main entry point for incoming Telegram updates.
@@ -164,25 +201,25 @@ func (h *Handler) HandleUpdate(ctx context.Context, update tgbotapi.Update) {
 		return
 	}
 
-	// Command dispatch.
+	if h.takeSearchPrompt(msg.Chat.ID) != nil && !msg.IsCommand() {
+		h.handleSearchPromptReply(ctx, msg)
+		return
+	}
+
 	if msg.IsCommand() {
 		h.handleCommand(ctx, msg)
 		return
 	}
 
-	// Magnet link.
 	if strings.Contains(msg.Text, "magnet:?") {
 		h.handleMagnet(ctx, msg)
 		return
 	}
 
-	// .torrent document.
 	if msg.Document != nil && strings.HasSuffix(strings.ToLower(msg.Document.FileName), ".torrent") {
 		h.handleTorrentFile(ctx, msg)
 		return
 	}
-
-	// Unknown message — silently ignore to avoid spamming the user.
 }
 
 // handleCommand dispatches bot commands (/start, /help, /list, /active, /downloading).
@@ -202,7 +239,210 @@ func (h *Handler) handleCommand(ctx context.Context, msg *tgbotapi.Message) {
 
 	case "uploading":
 		h.sendTorrentPage(ctx, msg.Chat.ID, qbt.FilterUploading, 1)
+
+	case "search":
+		h.handleSearchCommand(ctx, msg)
 	}
+}
+
+func (h *Handler) handleSearchCommand(ctx context.Context, msg *tgbotapi.Message) {
+	query := strings.TrimSpace(msg.CommandArguments())
+	if query == "" {
+		h.storeSearchPrompt(msg.Chat.ID, &SearchPrompt{
+			ChatID:    msg.Chat.ID,
+			CreatedAt: time.Now(),
+		})
+		h.replyText(msg.Chat.ID, "What to search for?")
+		return
+	}
+	h.replyText(msg.Chat.ID, fmt.Sprintf("Searching for '%s'...", query))
+	go h.pollSearchResults(ctx, msg.Chat.ID, query)
+}
+
+func (h *Handler) handleSearchPromptReply(ctx context.Context, msg *tgbotapi.Message) {
+	query := strings.TrimSpace(msg.Text)
+	if query == "" {
+		h.replyText(msg.Chat.ID, "Usage: /search <query>")
+		return
+	}
+	h.replyText(msg.Chat.ID, fmt.Sprintf("Searching for '%s'...", query))
+	go h.pollSearchResults(ctx, msg.Chat.ID, query)
+}
+
+func (h *Handler) pollSearchResults(ctx context.Context, chatID int64, query string) {
+	jobID, err := h.qbt.StartSearch(ctx, query)
+	if err != nil {
+		log.Printf("bot: start search: %v", err)
+		h.replyText(chatID, "Search unavailable. Please check your search configuration.")
+		return
+	}
+
+	ticker := time.NewTicker(searchPollInterval)
+	defer ticker.Stop()
+	timeout := time.After(searchTimeout)
+
+	for {
+		select {
+		case <-timeout:
+			_ = h.qbt.StopSearch(ctx, jobID)
+			_ = h.qbt.DeleteSearch(ctx, jobID)
+			h.replyText(chatID, "Search timed out. Please try again later.")
+			return
+		case <-ctx.Done():
+			_ = h.qbt.StopSearch(ctx, jobID)
+			_ = h.qbt.DeleteSearch(ctx, jobID)
+			return
+		case <-ticker.C:
+			status, err := h.qbt.SearchStatus(ctx, jobID)
+			if err != nil {
+				log.Printf("bot: search status: %v", err)
+				continue
+			}
+			if status == "Stopped" {
+				results, total, err := h.qbt.SearchResults(ctx, jobID, 0, searchResultsLimit)
+				if err != nil {
+					log.Printf("bot: search results: %v", err)
+					h.replyText(chatID, "Search failed. Please try again later.")
+					_ = h.qbt.DeleteSearch(ctx, jobID)
+					return
+				}
+				_ = h.qbt.DeleteSearch(ctx, jobID)
+
+				if len(results) == 0 {
+					h.replyText(chatID, fmt.Sprintf("No torrents found for '%s'.", query))
+					return
+				}
+
+				h.sortSearchResults(results, "seeders", false)
+
+				state := &SearchState{
+					ChatID:    chatID,
+					Query:     query,
+					JobID:     jobID,
+					Results:   results,
+					Total:     total,
+					SortField: "seeders",
+					SortAsc:   false,
+					CreatedAt: time.Now(),
+				}
+				msgID := h.sendSearchResultsPage(chatID, state, 1, 0)
+				if msgID != 0 {
+					state.MessageID = msgID
+					h.storeSearch(chatID, state)
+				}
+				return
+			}
+		}
+	}
+}
+
+func (h *Handler) sendSearchResultsPage(chatID int64, state *SearchState, page int, messageID int) int {
+	totalPages := formatter.TotalPages(len(state.Results), formatter.SearchResultsPerPage)
+	if page < 1 {
+		page = 1
+	}
+	if page > totalPages {
+		page = totalPages
+	}
+
+	offset := (page - 1) * formatter.SearchResultsPerPage
+	end := offset + formatter.SearchResultsPerPage
+	if end > len(state.Results) {
+		end = len(state.Results)
+	}
+	var pageResults []qbt.SearchResult
+	if offset < len(state.Results) {
+		pageResults = state.Results[offset:end]
+	}
+
+	text := formatter.FormatSearchResults(pageResults, state.Query, page, totalPages, formatter.SearchSortInfo{Field: state.SortField, Asc: state.SortAsc})
+	selectionKB := formatter.SearchResultKeyboard(pageResults, state.JobID, page)
+	paginationKB := formatter.SearchPaginationKeyboard(state.JobID, page, totalPages)
+	cancelKB := formatter.SearchCancelKeyboard(state.JobID)
+
+	var combined formatter.Keyboard
+	combined = append(combined, selectionKB...)
+	combined = append(combined, paginationKB...)
+	combined = append(combined, cancelKB...)
+
+	tgKB := toTGKeyboard(combined)
+
+	if messageID == 0 {
+		msg := tgbotapi.NewMessage(chatID, text)
+		msg.ReplyMarkup = tgKB
+		sent, err := h.sender.Send(msg)
+		if err != nil {
+			log.Printf("bot: send search results: %v", err)
+			return 0
+		}
+		return sent.MessageID
+	}
+
+	h.editMessageText(chatID, messageID, text, &tgKB)
+	return messageID
+}
+
+func (h *Handler) sortSearchResults(results []qbt.SearchResult, field string, asc bool) {
+	less := func(i, j int) bool {
+		switch field {
+		case "size":
+			if asc {
+				return results[i].FileSize < results[j].FileSize
+			}
+			return results[i].FileSize > results[j].FileSize
+		case "date":
+			if asc {
+				return results[i].PubDate < results[j].PubDate
+			}
+			return results[i].PubDate > results[j].PubDate
+		default:
+			if asc {
+				return results[i].NbSeeders < results[j].NbSeeders
+			}
+			return results[i].NbSeeders > results[j].NbSeeders
+		}
+	}
+	sort.Slice(results, less)
+}
+
+func (h *Handler) storeSearch(chatID int64, state *SearchState) {
+	h.searchMu.Lock()
+	defer h.searchMu.Unlock()
+	h.searches[chatID] = state
+}
+
+func (h *Handler) takeSearch(chatID int64) *SearchState {
+	h.searchMu.Lock()
+	defer h.searchMu.Unlock()
+	state, ok := h.searches[chatID]
+	if !ok {
+		return nil
+	}
+	delete(h.searches, chatID)
+	return state
+}
+
+func (h *Handler) getSearch(chatID int64) *SearchState {
+	h.searchMu.Lock()
+	defer h.searchMu.Unlock()
+	return h.searches[chatID]
+}
+
+func (h *Handler) storeSearchPrompt(chatID int64, prompt *SearchPrompt) {
+	h.searchMu.Lock()
+	defer h.searchMu.Unlock()
+	h.searchPrompts[chatID] = prompt
+}
+
+func (h *Handler) takeSearchPrompt(chatID int64) *SearchPrompt {
+	h.searchMu.Lock()
+	defer h.searchMu.Unlock()
+	prompt, ok := h.searchPrompts[chatID]
+	if !ok {
+		return nil
+	}
+	delete(h.searchPrompts, chatID)
+	return prompt
 }
 
 // handleMagnet extracts the first magnet URI from the message text, stores it

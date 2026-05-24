@@ -1,4 +1,20 @@
 services:
+  jackett:
+    image: lscr.io/linuxserver/jackett:v0.24.1926-ls410
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+      - AUTO_UPDATE=false
+    volumes:
+      - ./testdata/jackett-config:/config
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:9117/UI/Dashboard"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 15s
+
   qbittorrent:
     image: lscr.io/linuxserver/qbittorrent:latest
     environment:
@@ -10,6 +26,9 @@ services:
       - ./testdata/qbt-config:/config/qBittorrent/
     ports:
       - "18080:8080"
+    depends_on:
+      jackett:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/api/v2/app/version | grep -qE '200|401|403'"]
       interval: 5s

@@ -277,3 +277,12 @@ func (e *errorQBTClient) ListFiles(_ context.Context, _ string) ([]qbt.TorrentFi
 func (e *errorQBTClient) SetFilePriority(_ context.Context, _ string, _ []int, _ qbt.FilePriority) error {
 	return nil
 }
+func (e *errorQBTClient) StartSearch(_ context.Context, _ string) (int, error) { return 0, nil }
+func (e *errorQBTClient) SearchStatus(_ context.Context, _ int) (string, error) {
+	return "Stopped", nil
+}
+func (e *errorQBTClient) SearchResults(_ context.Context, _ int, _, _ int) ([]qbt.SearchResult, int, error) {
+	return nil, 0, nil
+}
+func (e *errorQBTClient) StopSearch(_ context.Context, _ int) error   { return nil }
+func (e *errorQBTClient) DeleteSearch(_ context.Context, _ int) error { return nil }

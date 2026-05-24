@@ -54,6 +54,13 @@ func (m *mockQBT) ListFiles(_ context.Context, _ string) ([]qbt.TorrentFile, err
 func (m *mockQBT) SetFilePriority(_ context.Context, _ string, _ []int, _ qbt.FilePriority) error {
 	return nil
 }
+func (m *mockQBT) StartSearch(_ context.Context, _ string) (int, error)  { return 0, nil }
+func (m *mockQBT) SearchStatus(_ context.Context, _ int) (string, error) { return "Stopped", nil }
+func (m *mockQBT) SearchResults(_ context.Context, _ int, _, _ int) ([]qbt.SearchResult, int, error) {
+	return nil, 0, nil
+}
+func (m *mockQBT) StopSearch(_ context.Context, _ int) error   { return nil }
+func (m *mockQBT) DeleteSearch(_ context.Context, _ int) error { return nil }
 
 // notification captures a single call to NotifyCompletion.
 type notification struct {

@@ -1137,6 +1137,251 @@ func TestPriorityKeyboard_BackButtonIsPgFL(t *testing.T) {
 	}
 }
 
+func makeSearchResults(n int) []qbt.SearchResult {
+	results := make([]qbt.SearchResult, n)
+	for i := range results {
+		results[i] = qbt.SearchResult{
+			FileName:   fmt.Sprintf("Ubuntu %d.04 ISO", i+1),
+			FileSize:   int64(2+i) * 1024 * 1024 * 1024,
+			FileURL:    fmt.Sprintf("magnet:?xt=urn:btih:%s", strings.Repeat("a", 40)),
+			NbSeeders:  50 + i*10,
+			NbLeechers: 10 + i,
+			SiteURL:    "https://tracker.example",
+			DescrLink:  "https://desc.example",
+			PubDate:    1672531200 + int64(i*86400),
+		}
+	}
+	return results
+}
+
+func TestFormatSearchResults_ContainsQueryAndPage(t *testing.T) {
+	results := makeSearchResults(2)
+	msg := formatter.FormatSearchResults(results, "ubuntu", 1, 1, formatter.SearchSortInfo{Field: "seeders", Asc: false})
+
+	if !strings.Contains(msg, "ubuntu") {
+		t.Errorf("expected query in message, got: %q", msg)
+	}
+	if !strings.Contains(msg, "page 1/1") {
+		t.Errorf("expected page indicator, got: %q", msg)
+	}
+}
+
+func TestFormatSearchResults_ContainsResultDetails(t *testing.T) {
+	results := []qbt.SearchResult{
+		{
+			FileName:   "Ubuntu 24.04 Desktop ISO",
+			FileSize:   2 * 1024 * 1024 * 1024,
+			FileURL:    "magnet:?xt=urn:btih:abc",
+			NbSeeders:  50,
+			NbLeechers: 10,
+			PubDate:    1672531200,
+		},
+	}
+	msg := formatter.FormatSearchResults(results, "ubuntu", 1, 1, formatter.SearchSortInfo{Field: "seeders", Asc: false})
+
+	if !strings.Contains(msg, "Ubuntu 24.04") {
+		t.Errorf("expected result name, got: %q", msg)
+	}
+	if !strings.Contains(msg, "2.0 GB") {
+		t.Errorf("expected formatted size, got: %q", msg)
+	}
+	if !strings.Contains(msg, "50") {
+		t.Errorf("expected seeders count, got: %q", msg)
+	}
+	if !strings.Contains(msg, "10") {
+		t.Errorf("expected leechers count, got: %q", msg)
+	}
+}
+
+func TestFormatSearchResults_Empty(t *testing.T) {
+	msg := formatter.FormatSearchResults(nil, "nothing", 1, 1, formatter.SearchSortInfo{Field: "seeders", Asc: false})
+	if msg != "No torrents found for 'nothing'." {
+		t.Errorf("expected empty result message, got: %q", msg)
+	}
+}
+
+func TestFormatSearchResults_MessageUnderLimit(t *testing.T) {
+	results := makeSearchResults(10)
+	for i := range results {
+		results[i].FileName = strings.Repeat("X", 50)
+	}
+	msg := formatter.FormatSearchResults(results, strings.Repeat("q", 20), 1, 1, formatter.SearchSortInfo{Field: "seeders", Asc: false})
+
+	if len(msg) >= formatter.MaxMessageLength {
+		t.Errorf("message %d chars exceeds limit %d", len(msg), formatter.MaxMessageLength)
+	}
+}
+
+func TestFormatSearchResults_SortIndicator(t *testing.T) {
+	results := makeSearchResults(1)
+	msg := formatter.FormatSearchResults(results, "test", 1, 1, formatter.SearchSortInfo{Field: "size", Asc: true})
+	if !strings.Contains(msg, "sort: size") {
+		t.Errorf("expected sort indicator, got: %q", msg)
+	}
+}
+
+func TestSearchResultKeyboard_BuildsButtons(t *testing.T) {
+	results := makeSearchResults(3)
+	kb := formatter.SearchResultKeyboard(results, 42, 1)
+
+	if len(kb) != 3 {
+		t.Fatalf("expected 3 rows, got %d", len(kb))
+	}
+	for i, row := range kb {
+		if !strings.HasPrefix(row[0].CallbackData, "sr:42:") {
+			t.Errorf("row %d: expected sr:42: prefix, got %q", i, row[0].CallbackData)
+		}
+		if len(row[0].CallbackData) > formatter.MaxCallbackData {
+			t.Errorf("row %d: callback %q exceeds %d bytes", i, row[0].CallbackData, formatter.MaxCallbackData)
+		}
+	}
+}
+
+func TestSearchResultKeyboard_Empty(t *testing.T) {
+	kb := formatter.SearchResultKeyboard(nil, 42, 1)
+	if kb != nil {
+		t.Errorf("expected nil keyboard for empty results, got %v", kb)
+	}
+}
+
+func TestSearchPaginationKeyboard_FirstPage(t *testing.T) {
+	kb := formatter.SearchPaginationKeyboard(42, 1, 3)
+
+	if len(kb) != 2 {
+		t.Fatalf("expected 2 rows (pagination + sort), got %d", len(kb))
+	}
+	row := kb[0]
+	if len(row) != 2 {
+		t.Fatalf("expected 2 buttons (page + next), got %d", len(row))
+	}
+	if row[1].Text != "Next >>" {
+		t.Errorf("expected Next button, got %q", row[1].Text)
+	}
+	if !strings.HasPrefix(row[1].CallbackData, "sp:42:") {
+		t.Errorf("expected sp:42: prefix, got %q", row[1].CallbackData)
+	}
+}
+
+func TestSearchPaginationKeyboard_LastPage(t *testing.T) {
+	kb := formatter.SearchPaginationKeyboard(42, 3, 3)
+
+	if len(kb) != 2 {
+		t.Fatalf("expected 2 rows (pagination + sort), got %d", len(kb))
+	}
+	row := kb[0]
+	if len(row) != 2 {
+		t.Fatalf("expected 2 buttons (prev + page), got %d", len(row))
+	}
+	if row[0].Text != "<< Prev" {
+		t.Errorf("expected Prev button, got %q", row[0].Text)
+	}
+}
+
+func TestSearchPaginationKeyboard_SinglePage(t *testing.T) {
+	kb := formatter.SearchPaginationKeyboard(42, 1, 1)
+	if len(kb) != 0 {
+		t.Errorf("expected empty keyboard for single page, got %d rows", len(kb))
+	}
+}
+
+func TestSearchPaginationKeyboard_SortButtons(t *testing.T) {
+	kb := formatter.SearchPaginationKeyboard(42, 1, 3)
+
+	if len(kb) < 2 {
+		t.Fatalf("expected at least 2 rows (pagination + sort), got %d", len(kb))
+	}
+	sortRow := kb[1]
+	if len(sortRow) != 3 {
+		t.Fatalf("expected 3 sort buttons, got %d", len(sortRow))
+	}
+	for _, btn := range sortRow {
+		if !strings.HasPrefix(btn.CallbackData, "ss:42:") {
+			t.Errorf("expected ss:42: prefix, got %q", btn.CallbackData)
+		}
+		if len(btn.CallbackData) > formatter.MaxCallbackData {
+			t.Errorf("callback %q exceeds %d bytes", btn.CallbackData, formatter.MaxCallbackData)
+		}
+	}
+}
+
+func TestFormatSearchConfirm(t *testing.T) {
+	result := qbt.SearchResult{
+		FileName:  "Ubuntu 24.04 ISO",
+		FileSize:  2 * 1024 * 1024 * 1024,
+		NbSeeders: 50,
+	}
+	msg := formatter.FormatSearchConfirm(result)
+
+	if !strings.Contains(msg, "Ubuntu 24.04") {
+		t.Errorf("expected torrent name, got: %q", msg)
+	}
+	if !strings.Contains(msg, "2.0 GB") {
+		t.Errorf("expected size, got: %q", msg)
+	}
+	if !strings.Contains(msg, "50") {
+		t.Errorf("expected seeders, got: %q", msg)
+	}
+}
+
+func TestSearchConfirmKeyboard(t *testing.T) {
+	kb := formatter.SearchConfirmKeyboard(42, 5, 2)
+
+	if len(kb) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(kb))
+	}
+
+	addBtn := kb[0][0]
+	if !strings.Contains(addBtn.Text, "Add") {
+		t.Errorf("expected Add button, got %q", addBtn.Text)
+	}
+	if !strings.HasPrefix(addBtn.CallbackData, "sc:42:5") {
+		t.Errorf("expected sc:42:5 prefix, got %q", addBtn.CallbackData)
+	}
+
+	backBtn := kb[1][0]
+	if !strings.Contains(backBtn.Text, "Back") {
+		t.Errorf("expected Back button, got %q", backBtn.Text)
+	}
+	if !strings.HasPrefix(backBtn.CallbackData, "sb:42:2") {
+		t.Errorf("expected sb:42:2 prefix, got %q", backBtn.CallbackData)
+	}
+
+	for _, row := range kb {
+		for _, btn := range row {
+			if len(btn.CallbackData) > formatter.MaxCallbackData {
+				t.Errorf("callback %q exceeds %d bytes", btn.CallbackData, formatter.MaxCallbackData)
+			}
+		}
+	}
+}
+
+func TestSearchPaginationKeyboard_CallbackDataUnderLimit(t *testing.T) {
+	kb := formatter.SearchPaginationKeyboard(9999, 999, 9999)
+	for _, row := range kb {
+		for _, btn := range row {
+			if btn.CallbackData != "noop" && len(btn.CallbackData) > formatter.MaxCallbackData {
+				t.Errorf("callback %q (%d bytes) exceeds %d limit",
+					btn.CallbackData, len(btn.CallbackData), formatter.MaxCallbackData)
+			}
+		}
+	}
+}
+
+func TestSearchResultKeyboard_CallbackDataUnderLimit(t *testing.T) {
+	results := []qbt.SearchResult{
+		{FileName: strings.Repeat("X", 100), FileURL: "magnet:?xt=urn:btih:" + strings.Repeat("a", 40)},
+	}
+	kb := formatter.SearchResultKeyboard(results, 9999, 999)
+	for _, row := range kb {
+		for _, btn := range row {
+			if len(btn.CallbackData) > formatter.MaxCallbackData {
+				t.Errorf("callback %q (%d bytes) exceeds %d limit",
+					btn.CallbackData, len(btn.CallbackData), formatter.MaxCallbackData)
+			}
+		}
+	}
+}
+
 func TestPriorityKeyboard_AllCallbacksUnderLimit(t *testing.T) {
 	hash := strings.Repeat("f", 40)
 	kb := formatter.PriorityKeyboard(hash, 99999, qbt.FilePriorityMaximum, formatter.FilesPageState{FilePage: 999, FilterChar: "a", ListPage: 999})

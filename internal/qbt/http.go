@@ -571,3 +571,158 @@ func (c *HTTPClient) Categories(ctx context.Context) ([]Category, error) {
 	})
 	return result, nil
 }
+
+func (c *HTTPClient) StartSearch(ctx context.Context, pattern string) (int, error) {
+	form := url.Values{}
+	form.Set("pattern", pattern)
+	form.Set("plugins", "all")
+	form.Set("category", "all")
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		c.baseURL+"/api/v2/search/start",
+		strings.NewReader(form.Encode()),
+	)
+	if err != nil {
+		return 0, fmt.Errorf("qbt start search: build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := c.doWithAuth(req)
+	if err != nil {
+		return 0, fmt.Errorf("qbt start search: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("qbt start search: unexpected status %d", resp.StatusCode)
+	}
+
+	var result struct {
+		ID int `json:"id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return 0, fmt.Errorf("qbt start search: decode response: %w", err)
+	}
+	return result.ID, nil
+}
+
+func (c *HTTPClient) SearchStatus(ctx context.Context, jobID int) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		c.baseURL+"/api/v2/search/status", nil)
+	if err != nil {
+		return "", fmt.Errorf("qbt search status: build request: %w", err)
+	}
+
+	resp, err := c.doWithAuth(req)
+	if err != nil {
+		return "", fmt.Errorf("qbt search status: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("qbt search status: unexpected status %d", resp.StatusCode)
+	}
+
+	var jobs []struct {
+		ID     int    `json:"id"`
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&jobs); err != nil {
+		return "", fmt.Errorf("qbt search status: decode response: %w", err)
+	}
+
+	for _, job := range jobs {
+		if job.ID == jobID {
+			return job.Status, nil
+		}
+	}
+	return "", fmt.Errorf("qbt search status: job %d not found", jobID)
+}
+
+func (c *HTTPClient) SearchResults(ctx context.Context, jobID int, offset, limit int) ([]SearchResult, int, error) {
+	u, err := url.Parse(c.baseURL + "/api/v2/search/results")
+	if err != nil {
+		return nil, 0, fmt.Errorf("qbt search results: parse URL: %w", err)
+	}
+
+	q := u.Query()
+	q.Set("id", strconv.Itoa(jobID))
+	q.Set("limit", strconv.Itoa(limit))
+	q.Set("offset", strconv.Itoa(offset))
+	u.RawQuery = q.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return nil, 0, fmt.Errorf("qbt search results: build request: %w", err)
+	}
+
+	resp, err := c.doWithAuth(req)
+	if err != nil {
+		return nil, 0, fmt.Errorf("qbt search results: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, 0, fmt.Errorf("qbt search results: unexpected status %d", resp.StatusCode)
+	}
+
+	var payload struct {
+		Results []SearchResult `json:"results"`
+		Total   int            `json:"total"`
+		Status  string         `json:"status"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, 0, fmt.Errorf("qbt search results: decode response: %w", err)
+	}
+	return payload.Results, payload.Total, nil
+}
+
+func (c *HTTPClient) StopSearch(ctx context.Context, jobID int) error {
+	form := url.Values{}
+	form.Set("id", strconv.Itoa(jobID))
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		c.baseURL+"/api/v2/search/stop",
+		strings.NewReader(form.Encode()),
+	)
+	if err != nil {
+		return fmt.Errorf("qbt stop search: build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := c.doWithAuth(req)
+	if err != nil {
+		return fmt.Errorf("qbt stop search: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("qbt stop search: unexpected status %d", resp.StatusCode)
+	}
+	return nil
+}
+
+func (c *HTTPClient) DeleteSearch(ctx context.Context, jobID int) error {
+	form := url.Values{}
+	form.Set("id", strconv.Itoa(jobID))
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		c.baseURL+"/api/v2/search/delete",
+		strings.NewReader(form.Encode()),
+	)
+	if err != nil {
+		return fmt.Errorf("qbt delete search: build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := c.doWithAuth(req)
+	if err != nil {
+		return fmt.Errorf("qbt delete search: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("qbt delete search: unexpected status %d", resp.StatusCode)
+	}
+	return nil
+}

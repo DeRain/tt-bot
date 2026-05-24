@@ -866,6 +866,280 @@ func TestSetFilePriority_ErrorOnNon200(t *testing.T) {
 	}
 }
 
+func TestStartSearch_SendsCorrectForm(t *testing.T) {
+	const (
+		sid     = "sid-search"
+		pattern = "ubuntu 22.04"
+	)
+	var gotBody string
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/auth/login", loginHandler(sid))
+	mux.HandleFunc("/api/v2/search/start", func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		gotBody = string(body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id": 42}`))
+	})
+
+	_, client := newTestServer(t, mux)
+	_ = client.Login(context.Background())
+
+	jobID, err := client.StartSearch(context.Background(), pattern)
+	if err != nil {
+		t.Fatalf("StartSearch() error = %v", err)
+	}
+	if jobID != 42 {
+		t.Errorf("jobID = %d, want 42", jobID)
+	}
+
+	parsed, _ := url.ParseQuery(gotBody)
+	if got := parsed.Get("pattern"); got != pattern {
+		t.Errorf("pattern = %q, want %q", got, pattern)
+	}
+	if got := parsed.Get("plugins"); got != "all" {
+		t.Errorf("plugins = %q, want %q", got, "all")
+	}
+}
+
+func TestStartSearch_ErrorOnNon200(t *testing.T) {
+	const sid = "sid-search-err"
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/auth/login", loginHandler(sid))
+	mux.HandleFunc("/api/v2/search/start", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+
+	_, client := newTestServer(t, mux)
+	_ = client.Login(context.Background())
+
+	_, err := client.StartSearch(context.Background(), "test")
+	if err == nil {
+		t.Fatal("expected error for non-200 response")
+	}
+}
+
+func TestSearchStatus_ReturnsStatus(t *testing.T) {
+	const sid = "sid-status"
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/auth/login", loginHandler(sid))
+	mux.HandleFunc("/api/v2/search/status", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[
+			{"id": 1, "status": "Running"},
+			{"id": 42, "status": "Stopped"},
+			{"id": 99, "status": "Running"}
+		]`))
+	})
+
+	_, client := newTestServer(t, mux)
+	_ = client.Login(context.Background())
+
+	status, err := client.SearchStatus(context.Background(), 42)
+	if err != nil {
+		t.Fatalf("SearchStatus() error = %v", err)
+	}
+	if status != "Stopped" {
+		t.Errorf("status = %q, want %q", status, "Stopped")
+	}
+}
+
+func TestSearchStatus_JobNotFound(t *testing.T) {
+	const sid = "sid-status-missing"
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/auth/login", loginHandler(sid))
+	mux.HandleFunc("/api/v2/search/status", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"id": 1, "status": "Running"}]`))
+	})
+
+	_, client := newTestServer(t, mux)
+	_ = client.Login(context.Background())
+
+	_, err := client.SearchStatus(context.Background(), 99)
+	if err == nil {
+		t.Fatal("expected error when job not found")
+	}
+}
+
+func TestSearchStatus_ErrorOnNon200(t *testing.T) {
+	const sid = "sid-status-err"
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/auth/login", loginHandler(sid))
+	mux.HandleFunc("/api/v2/search/status", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+
+	_, client := newTestServer(t, mux)
+	_ = client.Login(context.Background())
+
+	_, err := client.SearchStatus(context.Background(), 1)
+	if err == nil {
+		t.Fatal("expected error for non-200 response")
+	}
+}
+
+func TestSearchResults_ParsesResponse(t *testing.T) {
+	const sid = "sid-results"
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/auth/login", loginHandler(sid))
+	mux.HandleFunc("/api/v2/search/results", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if q.Get("id") != "42" {
+			t.Errorf("id = %q, want %q", q.Get("id"), "42")
+		}
+		if q.Get("limit") != "10" {
+			t.Errorf("limit = %q, want %q", q.Get("limit"), "10")
+		}
+		if q.Get("offset") != "0" {
+			t.Errorf("offset = %q, want %q", q.Get("offset"), "0")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"results": [
+				{"fileName": "Ubuntu.iso", "fileSize": 2147483648, "fileUrl": "magnet:?xt=urn:btih:abc", "nbSeeders": 50, "nbLeechers": 10, "siteUrl": "https://tracker.example", "descrLink": "https://desc.example", "pubDate": 1672531200}
+			],
+			"total": 1,
+			"status": "Stopped"
+		}`))
+	})
+
+	_, client := newTestServer(t, mux)
+	_ = client.Login(context.Background())
+
+	results, total, err := client.SearchResults(context.Background(), 42, 0, 10)
+	if err != nil {
+		t.Fatalf("SearchResults() error = %v", err)
+	}
+	if total != 1 {
+		t.Errorf("total = %d, want 1", total)
+	}
+	if len(results) != 1 {
+		t.Fatalf("len(results) = %d, want 1", len(results))
+	}
+	if results[0].FileName != "Ubuntu.iso" {
+		t.Errorf("FileName = %q, want %q", results[0].FileName, "Ubuntu.iso")
+	}
+	if results[0].FileSize != 2147483648 {
+		t.Errorf("FileSize = %d, want %d", results[0].FileSize, 2147483648)
+	}
+	if results[0].NbSeeders != 50 {
+		t.Errorf("NbSeeders = %d, want 50", results[0].NbSeeders)
+	}
+	if results[0].PubDate != 1672531200 {
+		t.Errorf("PubDate = %d, want %d", results[0].PubDate, 1672531200)
+	}
+}
+
+func TestSearchResults_ErrorOnNon200(t *testing.T) {
+	const sid = "sid-results-err"
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/auth/login", loginHandler(sid))
+	mux.HandleFunc("/api/v2/search/results", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+
+	_, client := newTestServer(t, mux)
+	_ = client.Login(context.Background())
+
+	_, _, err := client.SearchResults(context.Background(), 1, 0, 10)
+	if err == nil {
+		t.Fatal("expected error for non-200 response")
+	}
+}
+
+func TestStopSearch_SendsCorrectForm(t *testing.T) {
+	const sid = "sid-stop"
+	var gotBody string
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/auth/login", loginHandler(sid))
+	mux.HandleFunc("/api/v2/search/stop", func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		gotBody = string(body)
+		w.WriteHeader(http.StatusOK)
+	})
+
+	_, client := newTestServer(t, mux)
+	_ = client.Login(context.Background())
+
+	if err := client.StopSearch(context.Background(), 42); err != nil {
+		t.Fatalf("StopSearch() error = %v", err)
+	}
+
+	parsed, _ := url.ParseQuery(gotBody)
+	if got := parsed.Get("id"); got != "42" {
+		t.Errorf("id = %q, want %q", got, "42")
+	}
+}
+
+func TestStopSearch_ErrorOnNon200(t *testing.T) {
+	const sid = "sid-stop-err"
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/auth/login", loginHandler(sid))
+	mux.HandleFunc("/api/v2/search/stop", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+
+	_, client := newTestServer(t, mux)
+	_ = client.Login(context.Background())
+
+	err := client.StopSearch(context.Background(), 1)
+	if err == nil {
+		t.Fatal("expected error for non-200 response")
+	}
+}
+
+func TestDeleteSearch_SendsCorrectForm(t *testing.T) {
+	const sid = "sid-delete"
+	var gotBody string
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/auth/login", loginHandler(sid))
+	mux.HandleFunc("/api/v2/search/delete", func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		gotBody = string(body)
+		w.WriteHeader(http.StatusOK)
+	})
+
+	_, client := newTestServer(t, mux)
+	_ = client.Login(context.Background())
+
+	if err := client.DeleteSearch(context.Background(), 42); err != nil {
+		t.Fatalf("DeleteSearch() error = %v", err)
+	}
+
+	parsed, _ := url.ParseQuery(gotBody)
+	if got := parsed.Get("id"); got != "42" {
+		t.Errorf("id = %q, want %q", got, "42")
+	}
+}
+
+func TestDeleteSearch_ErrorOnNon200(t *testing.T) {
+	const sid = "sid-delete-err"
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/auth/login", loginHandler(sid))
+	mux.HandleFunc("/api/v2/search/delete", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+
+	_, client := newTestServer(t, mux)
+	_ = client.Login(context.Background())
+
+	err := client.DeleteSearch(context.Background(), 1)
+	if err == nil {
+		t.Fatal("expected error for non-200 response")
+	}
+}
+
 // --- validateMagnetURI tests ------------------------------------------------
 
 // TestValidateMagnetURI exercises the client-side magnet URI validator.

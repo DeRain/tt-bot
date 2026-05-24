@@ -1,0 +1,8 @@
+{
+    "Port": 9117,
+    "AllowExternal": true,
+    "APIKey": "test-api-key-ttbot-integration",
+    "InstanceId": "00000000-0000-0000-0000-000000000000",
+    "CacheEnabled": false,
+    "UpdateDisabled": true
+}

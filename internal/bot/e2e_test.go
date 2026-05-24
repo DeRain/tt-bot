@@ -1286,3 +1286,131 @@ func TestE2E_AutoRefresh_DetailView(t *testing.T) {
 		t.Fatal("expected editMessageText for detail view after refreshViews")
 	}
 }
+
+// TestE2E_SearchCommandWithQuery verifies that /search <query> initiates a
+// search and sends a results message. If Jackett is not configured the test
+// is skipped.
+func TestE2E_SearchCommandWithQuery(t *testing.T) {
+	const (
+		chatID = int64(2001)
+		userID = int64(2001)
+	)
+
+	ctx := context.Background()
+	qbtClient := getQBTClient(t)
+
+	sender := &mockSender{}
+	auth := NewAuthorizer([]int64{userID})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	update := newCommandUpdateWithArgs(chatID, userID, "search", "ubuntu")
+	h.HandleUpdate(ctx, update)
+
+	if len(sender.sentMessages) == 0 {
+		t.Fatal("expected at least one message in response to /search")
+	}
+
+	var lastText string
+	for i := 0; i < 30; i++ {
+		time.Sleep(100 * time.Millisecond)
+		texts := sender.sentTexts()
+		if len(texts) > 0 {
+			lastText = texts[len(texts)-1]
+			if strings.Contains(lastText, "Search unavailable") ||
+				strings.Contains(lastText, "Search:") ||
+				strings.Contains(lastText, "No torrents found") ||
+				strings.Contains(lastText, "Search timed out") {
+				break
+			}
+		}
+	}
+	if lastText == "" {
+		t.Fatal("expected search result message, got none")
+	}
+	if strings.Contains(lastText, "Search unavailable") {
+		t.Skipf("search unavailable in test environment: %q", lastText)
+	}
+	if !strings.Contains(lastText, "Search:") && !strings.Contains(lastText, "No torrents found") && !strings.Contains(lastText, "Search timed out") {
+		t.Errorf("expected search results or 'No torrents found', got: %q", lastText)
+	}
+}
+
+// TestE2E_SearchPromptWithoutQuery verifies that /search without a query
+// prompts the user for a search term.
+func TestE2E_SearchPromptWithoutQuery(t *testing.T) {
+	const (
+		chatID = int64(2002)
+		userID = int64(2002)
+	)
+
+	ctx := context.Background()
+	qbtClient := getQBTClient(t)
+
+	sender := &mockSender{}
+	auth := NewAuthorizer([]int64{userID})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	update := newCommandUpdate(chatID, userID, "search")
+	h.HandleUpdate(ctx, update)
+
+	if !sender.hasText("What to search for?") {
+		t.Fatalf("expected search prompt, got: %v", sender.sentTexts())
+	}
+
+	sender.sentMessages = nil
+	replyUpdate := newTestMessage(chatID, userID, "ubuntu")
+	h.HandleUpdate(ctx, replyUpdate)
+
+	var lastText string
+	for i := 0; i < 30; i++ {
+		time.Sleep(100 * time.Millisecond)
+		texts := sender.sentTexts()
+		if len(texts) > 0 {
+			lastText = texts[len(texts)-1]
+			if strings.Contains(lastText, "Search unavailable") ||
+				strings.Contains(lastText, "Search:") ||
+				strings.Contains(lastText, "No torrents found") ||
+				strings.Contains(lastText, "Search timed out") {
+				break
+			}
+		}
+	}
+	if lastText == "" {
+		t.Fatal("expected search result message after reply, got none")
+	}
+	if strings.Contains(lastText, "Search unavailable") {
+		t.Skipf("search unavailable in test environment: %q", lastText)
+	}
+	if !strings.Contains(lastText, "Search:") && !strings.Contains(lastText, "No torrents found") && !strings.Contains(lastText, "Search timed out") {
+		t.Errorf("expected search results or 'No torrents found', got: %q", lastText)
+	}
+}
+
+// TestE2E_SearchPromptAbandoned verifies that sending a different command
+// while waiting for a search query abandons the prompt.
+func TestE2E_SearchPromptAbandoned(t *testing.T) {
+	const (
+		chatID = int64(2003)
+		userID = int64(2003)
+	)
+
+	ctx := context.Background()
+	qbtClient := getQBTClient(t)
+
+	sender := &mockSender{}
+	auth := NewAuthorizer([]int64{userID})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	// Step 1: /search without query → prompt.
+	h.HandleUpdate(ctx, newCommandUpdate(chatID, userID, "search"))
+	if !sender.hasText("What to search for?") {
+		t.Fatal("expected search prompt")
+	}
+
+	// Step 2: send /help instead of a query → prompt abandoned, help shown.
+	sender.sentMessages = nil
+	h.HandleUpdate(ctx, newCommandUpdate(chatID, userID, "help"))
+	if !sender.hasText("/list") {
+		t.Fatalf("expected help text after abandoning prompt, got: %v", sender.sentTexts())
+	}
+}

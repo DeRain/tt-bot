@@ -1,0 +1,6 @@
+{
+    "api_key": "test-api-key-ttbot-integration",
+    "url": "http://jackett:9117",
+    "tracker_first": false,
+    "thread_count": 5
+}

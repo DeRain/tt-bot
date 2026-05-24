@@ -167,12 +167,17 @@ Get-Content .env | ForEach-Object {
 | `/active` | List active transfers (downloading + seeding) |
 | `/downloading` | List incomplete torrents (paused + active) |
 | `/uploading` | List completed torrents (seeding, paused seeds) |
+| `/search` | Search for torrents via qBittorrent search plugins |
 | `/help` | Show available commands and usage |
 
 ### Adding Torrents
 
 - **Magnet link** — paste a magnet URI into the chat. The bot prompts you to select a category, then adds the torrent.
 - **`.torrent` file** — send a `.torrent` file as a document. Same category selection flow as magnet links.
+
+### Search
+
+Use `/search <query>` to search for torrents across all configured qBittorrent search plugins. Results are shown with seeders, size, and date. Tap a result to add it via the same category selection flow as magnet links. You can also sort results by seeders, size, or date.
 
 ### Torrent Detail View
 

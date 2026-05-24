@@ -1513,3 +1513,218 @@ func TestCallback_CategoryWithPendingMagnet_AddTorrentFileError_ShowsError(t *te
 		t.Errorf("unexpected success confirmation in edited message on error path, edits: %v", sender.editTexts())
 	}
 }
+
+func TestCallback_SearchSelectCallback(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	results := []qbt.SearchResult{
+		{FileName: "Ubuntu 24.04", FileSize: 1024, NbSeeders: 10, FileURL: "magnet:?xt=urn:btih:abc"},
+	}
+	h.storeSearch(1, &SearchState{
+		ChatID:    1,
+		MessageID: 100,
+		JobID:     123,
+		Results:   results,
+		Total:     1,
+	})
+
+	update := newCallbackUpdate(1, "cb-sr", "sr:123:0")
+	h.HandleUpdate(context.Background(), update)
+
+	if !sender.hasEditText("Add this torrent?") {
+		t.Fatalf("expected confirm text, got edits: %v", sender.editTexts())
+	}
+}
+
+func TestCallback_SearchSelectCallback_InvalidIndex(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	results := []qbt.SearchResult{
+		{FileName: "Ubuntu 24.04", FileSize: 1024, NbSeeders: 10, FileURL: "magnet:?xt=urn:btih:abc"},
+	}
+	h.storeSearch(1, &SearchState{
+		ChatID:    1,
+		MessageID: 100,
+		JobID:     123,
+		Results:   results,
+		Total:     1,
+	})
+
+	update := newCallbackUpdate(1, "cb-sr", "sr:123:5")
+	h.HandleUpdate(context.Background(), update)
+
+	found := false
+	for _, msg := range sender.sentMessages {
+		if cb, ok := msg.(tgbotapi.CallbackConfig); ok && cb.Text == "Invalid result." {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected invalid result callback answer, got: %v", sender.sentMessages)
+	}
+}
+
+func TestCallback_SearchPageCallback(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	results := []qbt.SearchResult{
+		{FileName: "Ubuntu 24.04", FileSize: 1024, NbSeeders: 10, FileURL: "magnet:?xt=urn:btih:abc"},
+	}
+	h.storeSearch(1, &SearchState{
+		ChatID:    1,
+		MessageID: 100,
+		JobID:     123,
+		Results:   results,
+		Total:     1,
+	})
+
+	update := newCallbackUpdate(1, "cb-sp", "sp:123:1")
+	h.HandleUpdate(context.Background(), update)
+
+	if !sender.hasEditText("Search: ") {
+		t.Fatalf("expected search results page in edit, got: %v", sender.editTexts())
+	}
+}
+
+func TestCallback_SearchCancelCallback(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	h.storeSearch(1, &SearchState{
+		ChatID:    1,
+		MessageID: 100,
+		JobID:     123,
+	})
+
+	update := newCallbackUpdate(1, "cb-sx", "sx:123")
+	h.HandleUpdate(context.Background(), update)
+
+	if !sender.hasEditText("Search canceled.") {
+		t.Fatalf("expected cancel text, got edits: %v", sender.editTexts())
+	}
+	if !qbtClient.deleteSearchCalled {
+		t.Fatal("expected DeleteSearch to be called")
+	}
+}
+
+func TestCallback_SearchSortCallback(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	results := []qbt.SearchResult{
+		{FileName: "A", NbSeeders: 5, FileSize: 100},
+		{FileName: "B", NbSeeders: 20, FileSize: 200},
+	}
+	h.storeSearch(1, &SearchState{
+		ChatID:    1,
+		MessageID: 100,
+		JobID:     123,
+		Results:   results,
+		Total:     2,
+		SortField: "seeders",
+		SortAsc:   false,
+	})
+
+	update := newCallbackUpdate(1, "cb-ss", "ss:123:size")
+	h.HandleUpdate(context.Background(), update)
+
+	if !sender.hasEditText("Search: ") {
+		t.Fatalf("expected search results page in edit, got: %v", sender.editTexts())
+	}
+}
+
+func TestCallback_SearchConfirmCallback_WithMagnet(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{
+		categories: []qbt.Category{{Name: "Movies"}},
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	results := []qbt.SearchResult{
+		{FileName: "Ubuntu 24.04", FileSize: 1024, NbSeeders: 10, FileURL: "magnet:?xt=urn:btih:abc"},
+	}
+	h.storeSearch(1, &SearchState{
+		ChatID:    1,
+		MessageID: 100,
+		JobID:     123,
+		Results:   results,
+		Total:     1,
+	})
+
+	update := newCallbackUpdate(1, "cb-sc", "sc:123:0")
+	h.HandleUpdate(context.Background(), update)
+
+	if !sender.hasText("Select category for this torrent:") {
+		t.Fatalf("expected category prompt, got: %v", sender.sentTexts())
+	}
+
+	pending := h.takePending(1)
+	if pending == nil || pending.MagnetLink != "magnet:?xt=urn:btih:abc" {
+		t.Fatalf("expected pending magnet, got: %v", pending)
+	}
+}
+
+func TestCallback_SearchConfirmCallback_NoMagnet(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	results := []qbt.SearchResult{
+		{FileName: "Ubuntu 24.04", FileSize: 1024, NbSeeders: 10, FileURL: "https://example.com/torrent"},
+	}
+	h.storeSearch(1, &SearchState{
+		ChatID:    1,
+		MessageID: 100,
+		JobID:     123,
+		Results:   results,
+		Total:     1,
+	})
+
+	update := newCallbackUpdate(1, "cb-sc", "sc:123:0")
+	h.HandleUpdate(context.Background(), update)
+
+	if !sender.hasEditText("doesn't have a magnet link") {
+		t.Fatalf("expected no-magnet error, got edits: %v", sender.editTexts())
+	}
+}
+
+func TestCallback_SearchBackCallback(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	results := []qbt.SearchResult{
+		{FileName: "Ubuntu 24.04", FileSize: 1024, NbSeeders: 10, FileURL: "magnet:?xt=urn:btih:abc"},
+	}
+	h.storeSearch(1, &SearchState{
+		ChatID:    1,
+		MessageID: 100,
+		JobID:     123,
+		Results:   results,
+		Total:     1,
+	})
+
+	update := newCallbackUpdate(1, "cb-sb", "sb:123:1")
+	h.HandleUpdate(context.Background(), update)
+
+	if !sender.hasEditText("Search: ") {
+		t.Fatalf("expected search results page in edit, got: %v", sender.editTexts())
+	}
+}

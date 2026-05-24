@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/home/tt-bot/internal/qbt"
@@ -510,6 +511,134 @@ func PriorityKeyboard(
 	}})
 
 	return kb
+}
+
+const SearchResultsPerPage = 8
+
+type SearchSortInfo struct {
+	Field string
+	Asc   bool
+}
+
+func FormatSearchResults(results []qbt.SearchResult, query string, page, totalPages int, sort SearchSortInfo) string {
+	if len(results) == 0 {
+		return fmt.Sprintf("No torrents found for '%s'.", query)
+	}
+
+	header := fmt.Sprintf("Search: %s (page %d/%d)\nsort: %s\n\n", query, page, totalPages, sort.Field)
+	var sb strings.Builder
+	sb.WriteString(header)
+
+	for i, r := range results {
+		name := truncateName(r.FileName)
+		size := FormatSize(r.FileSize)
+		date := time.Unix(r.PubDate, 0).Format("2006-01-02")
+
+		entry := fmt.Sprintf(
+			"%d. %s\n   %s | S:%d L:%d | %s\n\n",
+			i+1,
+			name,
+			size,
+			r.NbSeeders,
+			r.NbLeechers,
+			date,
+		)
+
+		if sb.Len()+len(entry) > MaxMessageLength-1 {
+			break
+		}
+		sb.WriteString(entry)
+	}
+
+	return sb.String()
+}
+
+func SearchResultKeyboard(results []qbt.SearchResult, jobID int, page int) Keyboard {
+	if len(results) == 0 {
+		return nil
+	}
+
+	// Compute global result indices so sr: callbacks reference the correct
+	// position in the full (unsliced) results array.
+	startIdx := (page - 1) * SearchResultsPerPage
+
+	kb := make(Keyboard, 0, len(results))
+	for i := range results {
+		label := fmt.Sprintf("%d. %s", startIdx+i+1, truncateName(results[i].FileName))
+		data := fmt.Sprintf("sr:%d:%d", jobID, startIdx+i)
+		kb = append(kb, ButtonRow{Button{Text: label, CallbackData: data}})
+	}
+	return kb
+}
+
+func SearchPaginationKeyboard(jobID, currentPage, totalPages int) Keyboard {
+	if totalPages <= 1 {
+		return nil
+	}
+
+	var rows Keyboard
+
+	var pagRow ButtonRow
+	if currentPage > 1 {
+		pagRow = append(pagRow, Button{
+			Text:         "<< Prev",
+			CallbackData: fmt.Sprintf("sp:%d:%d", jobID, currentPage-1),
+		})
+	}
+
+	pagRow = append(pagRow, Button{
+		Text:         fmt.Sprintf("Page %d/%d", currentPage, totalPages),
+		CallbackData: "noop",
+	})
+
+	if currentPage < totalPages {
+		pagRow = append(pagRow, Button{
+			Text:         "Next >>",
+			CallbackData: fmt.Sprintf("sp:%d:%d", jobID, currentPage+1),
+		})
+	}
+	rows = append(rows, pagRow)
+
+	rows = append(rows, ButtonRow{
+		Button{Text: "Sort: Seeders", CallbackData: fmt.Sprintf("ss:%d:seeders", jobID)},
+		Button{Text: "Sort: Size", CallbackData: fmt.Sprintf("ss:%d:size", jobID)},
+		Button{Text: "Sort: Date", CallbackData: fmt.Sprintf("ss:%d:date", jobID)},
+	})
+
+	return rows
+}
+
+// FormatSearchConfirm builds a confirmation message for a selected search result.
+func FormatSearchConfirm(result qbt.SearchResult) string {
+	return fmt.Sprintf(
+		"Add this torrent?\n\n%s\nSize: %s\nSeeders: %d\nLeechers: %d",
+		result.FileName,
+		FormatSize(result.FileSize),
+		result.NbSeeders,
+		result.NbLeechers,
+	)
+}
+
+// SearchCancelKeyboard builds a single-row keyboard with a Close button
+// that cancels and deletes the active search job.
+func SearchCancelKeyboard(jobID int) Keyboard {
+	return Keyboard{
+		ButtonRow{
+			Button{Text: "❌ Close", CallbackData: fmt.Sprintf("sx:%d", jobID)},
+		},
+	}
+}
+
+// SearchConfirmKeyboard builds the confirmation keyboard for adding a search result.
+func SearchConfirmKeyboard(jobID int, resultIdx int, page int) Keyboard {
+	return Keyboard{
+		ButtonRow{
+			Button{Text: "Add this torrent", CallbackData: fmt.Sprintf("sc:%d:%d", jobID, resultIdx)},
+		},
+		ButtonRow{
+			Button{Text: "Back to results", CallbackData: fmt.Sprintf("sb:%d:%d", jobID, page)},
+		},
+	}
 }
 
 // CategoryKeyboard builds an inline keyboard with one button per category.
