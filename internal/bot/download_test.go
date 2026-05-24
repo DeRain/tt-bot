@@ -9,6 +9,7 @@ package bot
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -651,4 +652,101 @@ func TestDownloadSearchTorrent_HttpToHttpRedirect(t *testing.T) {
 	if len(data) == 0 {
 		t.Error("expected non-empty data from redirect chain")
 	}
+}
+
+// =========================================================================
+// CheckRedirect — magnet redirect and non-HTTP scheme rejection
+// =========================================================================
+
+func TestNewDownloadClient_MagnetRedirect(t *testing.T) {
+	client := newDownloadClient()
+
+	req, err := http.NewRequest(http.MethodGet, "magnet:?xt=urn:btih:aaa", nil)
+	if err != nil {
+		t.Fatalf("building magnet request: %v", err)
+	}
+
+	// Simulate redirect from http://origin to magnet:?
+	via := []*http.Request{
+		httpReq("http://origin.example/"),
+	}
+	got := client.CheckRedirect(req, via)
+	if got == nil {
+		t.Fatal("expected MagnetRedirectError for magnet target, got nil")
+	}
+	var magnetErr *MagnetRedirectError
+	if !errors.As(got, &magnetErr) {
+		t.Fatalf("expected *MagnetRedirectError, got %T: %v", got, got)
+	}
+	if magnetErr.URI != "magnet:?xt=urn:btih:aaa" {
+		t.Errorf("expected URI %q, got %q", "magnet:?xt=urn:btih:aaa", magnetErr.URI)
+	}
+}
+
+func TestNewDownloadClient_Redirect_RejectsOtherSchemes(t *testing.T) {
+	client := newDownloadClient()
+
+	req, err := http.NewRequest(http.MethodGet, "ftp://example.com/", nil)
+	if err != nil {
+		t.Fatalf("building ftp request: %v", err)
+	}
+
+	via := []*http.Request{
+		httpReq("http://origin.example/"),
+	}
+	err = client.CheckRedirect(req, via)
+	if err == nil {
+		t.Fatal("expected error for ftp:// redirect, got nil")
+	}
+	if !strings.Contains(err.Error(), "unsupported scheme") {
+		t.Errorf("expected 'unsupported scheme' error, got: %v", err)
+	}
+}
+
+func TestDownloadSearchTorrent_RedirectToMagnet(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890abcdef12",
+			http.StatusFound)
+	}))
+	defer srv.Close()
+
+	client := newDownloadClient()
+	_, err := downloadSearchTorrent(context.Background(), client, srv.URL)
+	if err == nil {
+		t.Fatal("expected error for redirect to magnet, got nil")
+	}
+	// Use direct type assertion — the error must be *MagnetRedirectError itself,
+	// not wrapped. errors.As would pass even if the error is wrapped.
+	magnetErr, ok := err.(*MagnetRedirectError)
+	if !ok {
+		t.Fatalf("expected *MagnetRedirectError, got %T: %v", err, err)
+	}
+	if !strings.HasPrefix(magnetErr.URI, "magnet:?") {
+		t.Errorf("expected magnet URI, got: %q", magnetErr.URI)
+	}
+}
+
+func TestDownloadSearchTorrent_RedirectToFtp(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "ftp://example.com/torrent", http.StatusFound)
+	}))
+	defer srv.Close()
+
+	client := newDownloadClient()
+	_, err := downloadSearchTorrent(context.Background(), client, srv.URL)
+	if err == nil {
+		t.Fatal("expected error for redirect to ftp, got nil")
+	}
+	if !strings.Contains(err.Error(), "unsupported scheme") {
+		t.Errorf("expected 'unsupported scheme' error, got: %v", err)
+	}
+	// Should NOT be a MagnetRedirectError.
+	if _, ok := err.(*MagnetRedirectError); ok {
+		t.Error("ftp redirect should not produce MagnetRedirectError")
+	}
+}
+
+func httpReq(urlStr string) *http.Request {
+	req, _ := http.NewRequest(http.MethodGet, urlStr, nil)
+	return req
 }

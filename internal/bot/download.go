@@ -2,6 +2,7 @@ package bot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -10,6 +11,17 @@ import (
 	"strings"
 	"time"
 )
+
+// MagnetRedirectError signals that an HTTP download URL redirected to a magnet
+// URI. The caller should handle this by storing the magnet link as a pending
+// torrent instead of treating it as a download failure.
+type MagnetRedirectError struct {
+	URI string
+}
+
+func (e *MagnetRedirectError) Error() string {
+	return "redirected to magnet URI"
+}
 
 // isPublicHostname checks whether host is a public (internet-routable) address.
 //
@@ -50,6 +62,12 @@ func newDownloadClient() *http.Client {
 			if len(via) >= 5 {
 				return fmt.Errorf("stopped after 5 redirects")
 			}
+			if strings.HasPrefix(req.URL.String(), "magnet:?") {
+				return &MagnetRedirectError{URI: req.URL.String()}
+			}
+			if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
+				return fmt.Errorf("redirect to unsupported scheme %q", req.URL.Scheme)
+			}
 			if len(via) > 0 && via[0].URL.Scheme == "https" && req.URL.Scheme == "http" {
 				return fmt.Errorf("https to http downgrade")
 			}
@@ -88,6 +106,12 @@ func downloadFile(ctx context.Context, client *http.Client, urlStr string, check
 		if len(via) >= 5 {
 			return fmt.Errorf("stopped after 5 redirects")
 		}
+		if strings.HasPrefix(req.URL.String(), "magnet:?") {
+			return &MagnetRedirectError{URI: req.URL.String()}
+		}
+		if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
+			return fmt.Errorf("redirect to unsupported scheme %q", req.URL.Scheme)
+		}
 		if via[0].URL.Scheme == "https" && req.URL.Scheme == "http" {
 			return fmt.Errorf("https to http downgrade")
 		}
@@ -96,6 +120,10 @@ func downloadFile(ctx context.Context, client *http.Client, urlStr string, check
 
 	resp, err := client.Do(req)
 	if err != nil {
+		var magnetErr *MagnetRedirectError
+		if errors.As(err, &magnetErr) {
+			return nil, magnetErr
+		}
 		return nil, fmt.Errorf("download failed: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()

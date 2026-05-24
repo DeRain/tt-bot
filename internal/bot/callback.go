@@ -2,6 +2,7 @@ package bot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strconv"
@@ -1152,6 +1153,16 @@ func (h *Handler) handleSearchConfirmCallback(ctx context.Context, cq *tgbotapi.
 		// same category → AddTorrentFile pipeline used for Telegram-uploaded files.
 		data, err := downloadUserTorrentFn(ctx, newDownloadClient(), result.FileURL)
 		if err != nil {
+			var magnetErr *MagnetRedirectError
+			if errors.As(err, &magnetErr) {
+				h.storePending(cq.Message.Chat.ID, &PendingTorrent{
+					MagnetLink: magnetErr.URI,
+					CreatedAt:  time.Now(),
+				})
+				h.sendCategoryKeyboard(ctx, cq.Message.Chat.ID, "Select category for this torrent:")
+				h.answerCallback(cq.ID, "")
+				return
+			}
 			h.answerCallback(cq.ID, "")
 			_ = h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID,
 				fmt.Sprintf("Failed to download torrent: %v", err), nil)

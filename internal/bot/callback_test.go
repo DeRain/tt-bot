@@ -1898,3 +1898,58 @@ func TestCallback_SearchBackCallback(t *testing.T) {
 		t.Fatalf("expected search results page in edit, got: %v", sender.editTexts())
 	}
 }
+
+func TestCallback_SearchConfirmCallback_HTTPDownload_RedirectToMagnet(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{
+		categories: []qbt.Category{{Name: "Movies"}},
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	results := []qbt.SearchResult{
+		{FileName: "Some Torrent", FileSize: 100, NbSeeders: 1, FileURL: "http://tracker.example/download/123"},
+	}
+	h.storeSearch(1, &SearchState{
+		ChatID:    1,
+		MessageID: 100,
+		JobID:     303,
+		Results:   results,
+		Total:     1,
+	})
+
+	update := newCallbackUpdate(1, "cb-sc", "sc:303:0")
+
+	origFn := downloadUserTorrentFn
+	defer func() { downloadUserTorrentFn = origFn }()
+
+	downloadUserTorrentFn = func(ctx context.Context, client *http.Client, url string) ([]byte, error) {
+		return nil, &MagnetRedirectError{URI: "magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890abcdef12"}
+	}
+
+	h.HandleUpdate(context.Background(), update)
+
+	if !sender.hasText("Select category for this torrent:") {
+		t.Fatalf("expected category prompt, got: %v", sender.sentTexts())
+	}
+	if sender.hasEditText("Failed to download") {
+		t.Error("unexpected 'Failed to download' error for magnet redirect")
+	}
+
+	pending := h.takePending(1)
+	if pending == nil || pending.MagnetLink != "magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890abcdef12" {
+		t.Fatalf("expected pending magnet, got: %v", pending)
+	}
+
+	// Verify answerCallback was sent (line 1163 in callback.go).
+	foundAnswer := false
+	for _, msg := range sender.sentMessages {
+		if ca, ok := msg.(tgbotapi.CallbackConfig); ok && ca.CallbackQueryID == "cb-sc" {
+			foundAnswer = true
+			break
+		}
+	}
+	if !foundAnswer {
+		t.Fatal("expected answerCallback for cb-sc, not found")
+	}
+}
