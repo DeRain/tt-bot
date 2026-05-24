@@ -1,0 +1,16 @@
+# gomutants configuration for tt-bot.
+# See: https://github.com/szhekpisov/gomutants
+
+workers: 4
+timeout-coefficient: 10
+threshold-efficacy: 0
+cache: .gomutants-cache.json
+checkpoint-interval: 10s
+output: mutation-report.json
+
+exclude-files:
+  - vendor/.*
+  - internal/.*/.*_test\.go
+
+exclude-packages:
+  - github.com/home/tt-bot/cmd/bot

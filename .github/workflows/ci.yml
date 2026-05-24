@@ -34,6 +34,31 @@ jobs:
       - name: Coverage Check
         run: make check-coverage
 
+  mutation:
+    runs-on: ubuntu-latest
+    needs: gate
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # required for --changed-since
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - name: Install gomutants
+        run: make install-mutation-tools
+
+      - name: Mutation Tests (PR-scoped)
+        run: make mutation-test-pr
+
+      - name: Upload Mutation Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-report
+          path: mutation-report.json
+
   integration:
     runs-on: ubuntu-latest
     needs: gate

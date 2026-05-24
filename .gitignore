@@ -19,6 +19,10 @@
 # Test
 coverage.out
 
+# Mutation testing
+.gomutants-cache.json
+mutation-report.json
+
 # Python caches
 __pycache__/
 *.pyc
@@ -41,4 +45,5 @@ testdata/jackett-config/Jackett/*
 .mcp.json
 .sisyphus/
 .omo/
+.omc/
 .claude/
