@@ -16,7 +16,7 @@ A stateless Telegram bot for managing qBittorrent downloads.
 
 ## Prerequisites
 
-- **Go 1.22+** — required only if building from source
+- **Go 1.26.1++** — required only if building from source
 - **Docker & Docker Compose** — for the recommended Docker setup (includes qBittorrent)
 - **A Telegram bot token** — from [@BotFather](https://t.me/BotFather) (see [Step 1](#step-1-create-a-telegram-bot))
 - **A running qBittorrent instance** with **WebUI enabled** and **login credentials configured** (see [Step 3](#step-3-set-up-qbittorrent)) — not needed if using Docker Compose
@@ -240,13 +240,3 @@ internal/poller/       Background goroutine detecting completed downloads
 - **Stateless** — all state is in-memory and lost on restart (by design)
 - **Interface-driven** — `qbt.Client`, `bot.Sender`, `poller.Notifier` for testability
 - **Telegram-safe** — messages stay under 4096 chars, callback data under 64 bytes
-
-### Test Coverage
-
-| Package | Coverage |
-|---------|----------|
-| config | 91.3% |
-| formatter | 97.3% |
-| poller | 88.2% |
-| bot | 82.6% |
-| qbt | 80.8% |
