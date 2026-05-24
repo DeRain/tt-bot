@@ -1135,18 +1135,48 @@ func (h *Handler) handleSearchConfirmCallback(ctx context.Context, cq *tgbotapi.
 	}
 
 	result := state.Results[idx]
-	if !strings.HasPrefix(result.FileURL, "magnet:?") {
+
+	if strings.HasPrefix(result.FileURL, "magnet:?") {
+		// Magnet link — existing flow unchanged.
+		h.storePending(cq.Message.Chat.ID, &PendingTorrent{
+			MagnetLink: result.FileURL,
+			CreatedAt:  time.Now(),
+		})
+		h.sendCategoryKeyboard(ctx, cq.Message.Chat.ID, "Select category for this torrent:")
 		h.answerCallback(cq.ID, "")
-		_ = h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, "This result doesn't have a magnet link. Try another result.", nil)
 		return
 	}
 
-	h.storePending(cq.Message.Chat.ID, &PendingTorrent{
-		MagnetLink: result.FileURL,
-		CreatedAt:  time.Now(),
-	})
-	h.sendCategoryKeyboard(ctx, cq.Message.Chat.ID, "Select category for this torrent:")
+	if strings.HasPrefix(result.FileURL, "http://") || strings.HasPrefix(result.FileURL, "https://") {
+		// Download .torrent file from HTTP URL, then proceed through the
+		// same category → AddTorrentFile pipeline used for Telegram-uploaded files.
+		data, err := downloadSearchTorrentFn(ctx, newDownloadClient(), result.FileURL)
+		if err != nil {
+			h.answerCallback(cq.ID, "")
+			_ = h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID,
+				fmt.Sprintf("Failed to download torrent: %v", err), nil)
+			return
+		}
+
+		fileName := result.FileName
+		if !strings.HasSuffix(strings.ToLower(fileName), ".torrent") {
+			fileName += ".torrent"
+		}
+
+		h.storePending(cq.Message.Chat.ID, &PendingTorrent{
+			FileData:  data,
+			FileName:  fileName,
+			CreatedAt: time.Now(),
+		})
+		h.sendCategoryKeyboard(ctx, cq.Message.Chat.ID, "Select category for this torrent:")
+		h.answerCallback(cq.ID, "")
+		return
+	}
+
+	// Neither magnet nor HTTP URL — still an error.
 	h.answerCallback(cq.ID, "")
+	_ = h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID,
+		"This result doesn't have a valid download link. Try another result.", nil)
 }
 
 func (h *Handler) handleSearchBackCallback(ctx context.Context, cq *tgbotapi.CallbackQuery, data string) {

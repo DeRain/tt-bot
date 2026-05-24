@@ -98,6 +98,14 @@ Unit tests run with `go test ./... -short`. Integration tests (`make test-integr
 
 **qBittorrent v5+:** use `/torrents/stop` and `/torrents/start`; v4 `/pause` and `/resume` return 404.
 
+### Mutation Testing Rules
+
+- `make mutation-test-pr` runs on every PR with **100% efficacy threshold**. Any surviving mutant blocks the CI check.
+- **New code MUST NOT use `gomutants:disable` comments.** Fix all mutants with real tests.
+- **Touching old code that has existing `gomutants:disable` comments REQUIRES fixing the underlying mutant** — remove the suppression and add a test.
+- **Equivalent mutants** (behaviorally identical to original) should be fixed by **restructuring the code** to eliminate the untestable branch, not by suppressing the mutant.
+- Run `make mutation-test-pr` locally before pushing to confirm 0 lived mutants.
+
 ## Interface-Driven Design
 
 All external dependencies are behind interfaces. When adding new qBittorrent API calls:

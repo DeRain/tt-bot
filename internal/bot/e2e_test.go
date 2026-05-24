@@ -3,8 +3,13 @@
 package bot
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha1"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -1412,5 +1417,86 @@ func TestE2E_SearchPromptAbandoned(t *testing.T) {
 	h.HandleUpdate(ctx, newCommandUpdate(chatID, userID, "help"))
 	if !sender.hasText("/list") {
 		t.Fatalf("expected help text after abandoning prompt, got: %v", sender.sentTexts())
+	}
+}
+
+// TestE2E_DownloadHTTPTorrentAndAdd verifies the full HTTP download →
+// AddTorrentFile pipeline against a real qBittorrent instance. A minimal
+// valid .torrent file is served via httptest, downloaded through
+// downloadSearchTorrent, added to qBittorrent, and verified in the torrent
+// list.
+func TestE2E_DownloadHTTPTorrentAndAdd(t *testing.T) {
+	ctx := context.Background()
+	qbtClient := getQBTClient(t)
+
+	// Generate a valid bencoded .torrent file programmatically.
+	// DHT-only torrent (no announce key) — single-file, length=1, one 20-byte piece.
+	var buf bytes.Buffer
+	buf.WriteString("d")
+	buf.WriteString("4:info")
+	buf.WriteString("d")
+	buf.WriteString("6:length")
+	buf.WriteString("i1e")
+	buf.WriteString("4:name")
+	buf.WriteString("4:test")
+	buf.WriteString("12:piece length")
+	buf.WriteString("i32768e")
+	buf.WriteString("6:pieces")
+	pieceHash := sha1.Sum([]byte{0})
+	buf.WriteString("20:")
+	buf.Write(pieceHash[:])
+	buf.WriteString("e") // end info dict
+	buf.WriteString("e") // end root dict
+	torrentData := buf.Bytes()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(torrentData)
+	}))
+	defer srv.Close()
+
+	client := newDownloadClient()
+	data, err := downloadSearchTorrent(ctx, client, srv.URL)
+	if err != nil {
+		t.Fatalf("downloadSearchTorrent failed: %v", err)
+	}
+
+	if err := qbtClient.AddTorrentFile(ctx, "e2e-http-download.torrent", bytes.NewReader(data), ""); err != nil {
+		t.Fatalf("AddTorrentFile failed: %v", err)
+	}
+
+	// Verify the torrent appears in the list.
+	torrents, err := qbtClient.ListTorrents(ctx, qbt.ListOptions{Filter: qbt.FilterAll})
+	if err != nil {
+		t.Fatalf("Torrents failed: %v", err)
+	}
+
+	found := false
+	for _, tr := range torrents {
+		if tr.Name == "test" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("added torrent 'test' not found in qBittorrent list (got %d torrents)", len(torrents))
+	}
+}
+
+// TestE2E_DownloadHTTPTorrentAndAdd_ContentTypeRejected verifies that
+// downloadSearchTorrent rejects non-torrent content before reaching
+// qBittorrent.
+func TestE2E_DownloadHTTPTorrentAndAdd_ContentTypeRejected(t *testing.T) {
+	ctx := context.Background()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = io.WriteString(w, "<html>not a torrent</html>")
+	}))
+	defer srv.Close()
+
+	client := newDownloadClient()
+	_, err := downloadSearchTorrent(ctx, client, srv.URL)
+	if err == nil {
+		t.Fatal("expected downloadSearchTorrent to reject text/html, but it succeeded")
 	}
 }
