@@ -317,7 +317,7 @@ func (h *Handler) renderTorrentListPage(
 func parseControlCallback(data string) (filterChar string, page int, hash string, err error) {
 	parts := strings.SplitN(data, ":", 3)
 	if len(parts) != 3 {
-		return "", 0, "", fmt.Errorf("invalid callback format")
+		return "", 0, "", errors.New("invalid callback format")
 	}
 	filterChar = parts[0]
 	page, err = strconv.Atoi(parts[1])
@@ -608,10 +608,12 @@ func isValidFilePriority(p int) bool {
 
 // parseFileSelectCallback parses fs:<hash>:<fileIndex>:<filePage>:<filterChar>:<listPage>.
 // Returns an error if the format is invalid or fileIndex is negative.
+//
+//nolint:gocritic // callback data parser with multiple extracted fields
 func parseFileSelectCallback(data string) (hash string, fileIndex, filePage int, filterChar string, listPage int, err error) {
 	parts := strings.SplitN(data, ":", 5)
 	if len(parts) != 5 {
-		return "", 0, 0, "", 0, fmt.Errorf("invalid fs: format")
+		return "", 0, 0, "", 0, errors.New("invalid fs: format")
 	}
 	hash = parts[0]
 	fileIndex, err = strconv.Atoi(parts[1])
@@ -619,7 +621,7 @@ func parseFileSelectCallback(data string) (hash string, fileIndex, filePage int,
 		return "", 0, 0, "", 0, fmt.Errorf("invalid fileIndex: %w", err)
 	}
 	if fileIndex < 0 {
-		return "", 0, 0, "", 0, fmt.Errorf("fileIndex must be non-negative")
+		return "", 0, 0, "", 0, errors.New("fileIndex must be non-negative")
 	}
 	filePage, err = strconv.Atoi(parts[2])
 	if err != nil {
@@ -635,10 +637,12 @@ func parseFileSelectCallback(data string) (hash string, fileIndex, filePage int,
 
 // parseFilePriorityCallback parses fp:<hash>:<fileIndex>:<priority>:<filePage>:<filterChar>:<listPage>.
 // Returns an error if the format is invalid or fileIndex is negative.
+//
+//nolint:gocritic // callback data parser with multiple extracted fields
 func parseFilePriorityCallback(data string) (hash string, fileIndex, priority, filePage int, filterChar string, listPage int, err error) {
 	parts := strings.SplitN(data, ":", 6)
 	if len(parts) != 6 {
-		return "", 0, 0, 0, "", 0, fmt.Errorf("invalid fp: format")
+		return "", 0, 0, 0, "", 0, errors.New("invalid fp: format")
 	}
 	hash = parts[0]
 	fileIndex, err = strconv.Atoi(parts[1])
@@ -646,7 +650,7 @@ func parseFilePriorityCallback(data string) (hash string, fileIndex, priority, f
 		return "", 0, 0, 0, "", 0, fmt.Errorf("invalid fileIndex: %w", err)
 	}
 	if fileIndex < 0 {
-		return "", 0, 0, 0, "", 0, fmt.Errorf("fileIndex must be non-negative")
+		return "", 0, 0, 0, "", 0, errors.New("fileIndex must be non-negative")
 	}
 	priority, err = strconv.Atoi(parts[2])
 	if err != nil {
@@ -668,7 +672,7 @@ func parseFilePriorityCallback(data string) (hash string, fileIndex, priority, f
 func parseFilesOpenCallback(data string) (filterChar string, listPage int, hash string, err error) {
 	parts := strings.SplitN(data, ":", 3)
 	if len(parts) != 3 {
-		return "", 0, "", fmt.Errorf("invalid fl: format")
+		return "", 0, "", errors.New("invalid fl: format")
 	}
 	filterChar = parts[0]
 	listPage, err = strconv.Atoi(parts[1])
@@ -683,7 +687,7 @@ func parseFilesOpenCallback(data string) (filterChar string, listPage int, hash 
 func parseFilesNavCallback(data string) (hash string, filePage int, filterChar string, listPage int, err error) {
 	parts := strings.SplitN(data, ":", 4)
 	if len(parts) != 4 {
-		return "", 0, "", 0, fmt.Errorf("invalid pg:fl: format")
+		return "", 0, "", 0, errors.New("invalid pg:fl: format")
 	}
 	hash = parts[0]
 	filePage, err = strconv.Atoi(parts[1])
@@ -702,7 +706,7 @@ func parseFilesNavCallback(data string) (hash string, filePage int, filterChar s
 func parseBackFromFilesCallback(data string) (filterChar string, listPage int, hash string, err error) {
 	parts := strings.SplitN(data, ":", 3)
 	if len(parts) != 3 {
-		return "", 0, "", fmt.Errorf("invalid bk:fl: format")
+		return "", 0, "", errors.New("invalid bk:fl: format")
 	}
 	filterChar = parts[0]
 	listPage, err = strconv.Atoi(parts[1])
@@ -807,7 +811,12 @@ func (h *Handler) handleFilesPageNavCallback(ctx context.Context, cq *tgbotapi.C
 		}
 	}
 
-	text, kb, err := h.renderFilesPage(ctx, hash, torrentName, formatter.FilesPageState{FilePage: filePage, FilterChar: filterChar, ListPage: listPage})
+	fps := formatter.FilesPageState{
+		FilePage:   filePage,
+		FilterChar: filterChar,
+		ListPage:   listPage,
+	}
+	text, kb, err := h.renderFilesPage(ctx, hash, torrentName, fps)
 	if err != nil {
 		h.answerCallback(cq.ID, "Failed to load files.")
 		return
@@ -852,7 +861,7 @@ func (h *Handler) handleBackFromFilesCallback(ctx context.Context, cq *tgbotapi.
 }
 
 // handleFileSelectCallback handles fs: callbacks — showing the priority selector for a file.
-// Format: fs:<hash>:<fileIndex>:<filePage>:<filterChar>:<listPage>
+// Format: fs:<hash>:<fileIndex>:<filePage>:<filterChar>:<listPage>.
 func (h *Handler) handleFileSelectCallback(ctx context.Context, cq *tgbotapi.CallbackQuery, data string) {
 	hash, fileIndex, filePage, filterChar, listPage, err := parseFileSelectCallback(data)
 	if err != nil {
@@ -879,7 +888,7 @@ func (h *Handler) handleFileSelectCallback(ctx context.Context, cq *tgbotapi.Cal
 }
 
 // handleFilePriorityCallback handles fp: callbacks — setting a file's download priority.
-// Format: fp:<hash>:<fileIndex>:<priority>:<filePage>:<filterChar>:<listPage>
+// Format: fp:<hash>:<fileIndex>:<priority>:<filePage>:<filterChar>:<listPage>.
 func (h *Handler) handleFilePriorityCallback(ctx context.Context, cq *tgbotapi.CallbackQuery, data string) {
 	hash, fileIndex, priority, filePage, filterChar, listPage, err := parseFilePriorityCallback(data)
 	if err != nil {
@@ -909,7 +918,12 @@ func (h *Handler) handleFilePriorityCallback(ctx context.Context, cq *tgbotapi.C
 		}
 	}
 
-	text, kb, renderErr := h.renderFilesPage(ctx, hash, torrentName, formatter.FilesPageState{FilePage: filePage, FilterChar: filterChar, ListPage: listPage})
+	fps := formatter.FilesPageState{
+		FilePage:   filePage,
+		FilterChar: filterChar,
+		ListPage:   listPage,
+	}
+	text, kb, renderErr := h.renderFilesPage(ctx, hash, torrentName, fps)
 	if renderErr != nil {
 		h.answerCallback(cq.ID, "Priority updated.")
 		return
@@ -1148,6 +1162,7 @@ func (h *Handler) handleSearchConfirmCallback(ctx context.Context, cq *tgbotapi.
 		return
 	}
 
+	//nolint:nestif // URL scheme check is a simple 2-condition filter
 	if strings.HasPrefix(result.FileURL, "http://") || strings.HasPrefix(result.FileURL, "https://") {
 		// Download .torrent file from HTTP URL, then proceed through the
 		// same category → AddTorrentFile pipeline used for Telegram-uploaded files.

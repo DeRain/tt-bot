@@ -6,7 +6,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -29,8 +28,10 @@ type telegramNotifier struct {
 }
 
 // NotifyCompletion sends a completion message for torrent t to chatID.
+//
+//nolint:gocritic // passed by value intentionally — changing to pointer would require interface signature changes
 func (n *telegramNotifier) NotifyCompletion(_ context.Context, chatID int64, t qbt.Torrent) error {
-	text := fmt.Sprintf("✅ Download complete!\n\n%s", t.Name)
+	text := "✅ Download complete!\n\n" + t.Name
 	msg := tgbotapi.NewMessage(chatID, text)
 	_, err := n.bot.Send(msg)
 	return err
@@ -71,7 +72,11 @@ func main() {
 
 	// 5. Create the bot handler (passes ctx for cleanup goroutine shutdown).
 	auth := bot.NewAuthorizer(cfg.AllowedUsers)
-	handler := bot.New(ctx, botAPI, qbtClient, auth, bot.HandlerOptions{BotToken: cfg.TelegramToken, ViewRefreshInterval: cfg.ViewRefreshInterval, ViewTTL: cfg.ViewTTL})
+	handler := bot.New(ctx, botAPI, qbtClient, auth, bot.HandlerOptions{
+		BotToken:            cfg.TelegramToken,
+		ViewRefreshInterval: cfg.ViewRefreshInterval,
+		ViewTTL:             cfg.ViewTTL,
+	})
 
 	// 6. Create the completion notifier.
 	notifier := &telegramNotifier{bot: botAPI}

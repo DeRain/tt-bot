@@ -1143,7 +1143,7 @@ func makeSearchResults(n int) []qbt.SearchResult {
 		results[i] = qbt.SearchResult{
 			FileName:   fmt.Sprintf("Ubuntu %d.04 ISO", i+1),
 			FileSize:   int64(2+i) * 1024 * 1024 * 1024,
-			FileURL:    fmt.Sprintf("magnet:?xt=urn:btih:%s", strings.Repeat("a", 40)),
+			FileURL:    "magnet:?xt=urn:btih:" + strings.Repeat("a", 40),
 			NbSeeders:  50 + i*10,
 			NbLeechers: 10 + i,
 			SiteURL:    "https://tracker.example",

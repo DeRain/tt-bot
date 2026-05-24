@@ -10,7 +10,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -176,7 +175,7 @@ func TestDownloadSearchTorrent_TooLarge(t *testing.T) {
 		w.Header().Set("Content-Type", "application/x-bittorrent")
 		// Write 11 MB (exceeds a 10 MB safety limit).
 		chunk := make([]byte, 1024*1024) // 1 MB
-		for i := 0; i < 11; i++ {
+		for range 11 {
 			_, _ = w.Write(chunk)
 		}
 	}))
@@ -448,7 +447,7 @@ func (r *errorBodyReader) Read(p []byte) (int, error) {
 		return 0, io.EOF
 	}
 	r.read = true
-	return 0, fmt.Errorf("simulated body read error")
+	return 0, errors.New("simulated body read error")
 }
 
 func (r *errorBodyReader) Close() error { return nil }
@@ -717,7 +716,8 @@ func TestDownloadSearchTorrent_RedirectToMagnet(t *testing.T) {
 	}
 	// Use direct type assertion — the error must be *MagnetRedirectError itself,
 	// not wrapped. errors.As would pass even if the error is wrapped.
-	magnetErr, ok := err.(*MagnetRedirectError)
+	magnetErr := &MagnetRedirectError{}
+	ok := errors.As(err, &magnetErr)
 	if !ok {
 		t.Fatalf("expected *MagnetRedirectError, got %T: %v", err, err)
 	}
@@ -741,7 +741,8 @@ func TestDownloadSearchTorrent_RedirectToFtp(t *testing.T) {
 		t.Errorf("expected 'unsupported scheme' error, got: %v", err)
 	}
 	// Should NOT be a MagnetRedirectError.
-	if _, ok := err.(*MagnetRedirectError); ok {
+	magnetRedirectError := &MagnetRedirectError{}
+	if errors.As(err, &magnetRedirectError) {
 		t.Error("ftp redirect should not produce MagnetRedirectError")
 	}
 }

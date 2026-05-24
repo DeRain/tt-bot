@@ -12,6 +12,11 @@ import (
 	"time"
 )
 
+const (
+	schemeHTTP  = "http"
+	schemeHTTPS = "https"
+)
+
 // MagnetRedirectError signals that an HTTP download URL redirected to a magnet
 // URI. The caller should handle this by storing the magnet link as a pending
 // torrent instead of treating it as a download failure.
@@ -63,13 +68,13 @@ func newDownloadClient() *http.Client {
 				return &MagnetRedirectError{URI: req.URL.String()}
 			}
 			if len(via) >= 5 {
-				return fmt.Errorf("stopped after 5 redirects")
+				return errors.New("stopped after 5 redirects")
 			}
-			if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
+			if req.URL.Scheme != schemeHTTP && req.URL.Scheme != schemeHTTPS {
 				return fmt.Errorf("redirect to unsupported scheme %q", req.URL.Scheme)
 			}
-			if len(via) > 0 && via[0].URL.Scheme == "https" && req.URL.Scheme == "http" {
-				return fmt.Errorf("https to http downgrade")
+			if len(via) > 0 && via[0].URL.Scheme == schemeHTTPS && req.URL.Scheme == schemeHTTP {
+				return errors.New("https to http downgrade")
 			}
 			return nil
 		},
@@ -82,13 +87,15 @@ func newDownloadClient() *http.Client {
 //   - response must be 200 OK
 //   - Content-Type must not be text/html
 //   - body is limited to 10 MB
+//
+//nolint:gocognit // safety validation sequence with multiple security checks
 func downloadFile(ctx context.Context, client *http.Client, urlStr string, checkSSRF bool) ([]byte, error) {
 	u, err := url.Parse(urlStr)
 	if err != nil {
 		return nil, fmt.Errorf("parse url: %w", err)
 	}
 
-	if u.Scheme != "http" && u.Scheme != "https" {
+	if u.Scheme != schemeHTTP && u.Scheme != schemeHTTPS {
 		return nil, fmt.Errorf("unsupported scheme %q", u.Scheme)
 	}
 
@@ -98,7 +105,7 @@ func downloadFile(ctx context.Context, client *http.Client, urlStr string, check
 		}
 	}
 
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, nil)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, http.NoBody)
 
 	// Install redirect policy so callers that pass a bare client (e.g.
 	// httpsSrv.Client()) still get redirect safety.
@@ -107,13 +114,13 @@ func downloadFile(ctx context.Context, client *http.Client, urlStr string, check
 			return &MagnetRedirectError{URI: req.URL.String()}
 		}
 		if len(via) >= 5 {
-			return fmt.Errorf("stopped after 5 redirects")
+			return errors.New("stopped after 5 redirects")
 		}
-		if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
+		if req.URL.Scheme != schemeHTTP && req.URL.Scheme != schemeHTTPS {
 			return fmt.Errorf("redirect to unsupported scheme %q", req.URL.Scheme)
 		}
-		if via[0].URL.Scheme == "https" && req.URL.Scheme == "http" {
-			return fmt.Errorf("https to http downgrade")
+		if via[0].URL.Scheme == schemeHTTPS && req.URL.Scheme == schemeHTTP {
+			return errors.New("https to http downgrade")
 		}
 		return nil
 	}
@@ -144,7 +151,7 @@ func downloadFile(ctx context.Context, client *http.Client, urlStr string, check
 		return nil, fmt.Errorf("read body: %w", err)
 	}
 	if len(data) > maxSize {
-		return nil, fmt.Errorf("response too large")
+		return nil, errors.New("response too large")
 	}
 
 	return data, nil

@@ -1,7 +1,7 @@
 package bot
 
 // Authorizer holds the set of Telegram user IDs that are permitted to interact
-// with the bot. All other users are rejected with "Access denied."
+// with the bot. All other users are rejected with Access denied.
 type Authorizer struct {
 	allowed map[int64]struct{}
 }

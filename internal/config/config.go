@@ -2,6 +2,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -134,7 +135,7 @@ func parseAllowedUsers(raw string) ([]int64, error) {
 	}
 
 	if len(ids) == 0 {
-		return nil, fmt.Errorf("TELEGRAM_ALLOWED_USERS must contain at least one valid user ID")
+		return nil, errors.New("TELEGRAM_ALLOWED_USERS must contain at least one valid user ID")
 	}
 
 	return ids, nil
