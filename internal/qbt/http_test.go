@@ -1140,6 +1140,40 @@ func TestDeleteSearch_ErrorOnNon200(t *testing.T) {
 	}
 }
 
+func TestStopSearch_NotFoundIsSuccess(t *testing.T) {
+	const sid = "sid-stop-nf"
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/auth/login", loginHandler(sid))
+	mux.HandleFunc("/api/v2/search/stop", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	})
+
+	_, client := newTestServer(t, mux)
+	_ = client.Login(context.Background())
+
+	if err := client.StopSearch(context.Background(), 1); err != nil {
+		t.Fatalf("StopSearch() unexpected error for 404: %v", err)
+	}
+}
+
+func TestDeleteSearch_NotFoundIsSuccess(t *testing.T) {
+	const sid = "sid-delete-nf"
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/auth/login", loginHandler(sid))
+	mux.HandleFunc("/api/v2/search/delete", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	})
+
+	_, client := newTestServer(t, mux)
+	_ = client.Login(context.Background())
+
+	if err := client.DeleteSearch(context.Background(), 1); err != nil {
+		t.Fatalf("DeleteSearch() unexpected error for 404: %v", err)
+	}
+}
+
 // --- validateMagnetURI tests ------------------------------------------------
 
 // TestValidateMagnetURI exercises the client-side magnet URI validator.

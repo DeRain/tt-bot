@@ -809,8 +809,8 @@ func TestRefreshLiveView_DetailView_NotFound(t *testing.T) {
 	})
 
 	err := h.refreshLiveView(context.Background(), h.liveViews[chatID])
-	if err == nil {
-		t.Fatal("expected error for missing torrent")
+	if err != nil {
+		t.Fatalf("expected no error for missing torrent (deregistered), got: %v", err)
 	}
 
 	// Should have deregistered the view.
