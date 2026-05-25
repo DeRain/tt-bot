@@ -911,7 +911,7 @@ func (h *Handler) refreshLiveView(ctx context.Context, lv *LiveView) error {
 		torrent, found := findTorrentByHash(all, lv.TorrentHash)
 		if !found {
 			h.deregisterLiveView(lv.ChatID, lv.MessageID)
-			return fmt.Errorf("torrent %s not found", lv.TorrentHash)
+			return nil
 		}
 		text = formatter.FormatTorrentDetail(torrent)
 		kb = formatter.TorrentDetailKeyboard(lv.TorrentHash, filterChar, page, torrent.State)

@@ -695,7 +695,7 @@ func (c *HTTPClient) StopSearch(ctx context.Context, jobID int) error {
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNotFound {
 		return fmt.Errorf("qbt stop search: unexpected status %d", resp.StatusCode)
 	}
 	return nil
@@ -720,7 +720,7 @@ func (c *HTTPClient) DeleteSearch(ctx context.Context, jobID int) error {
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNotFound {
 		return fmt.Errorf("qbt delete search: unexpected status %d", resp.StatusCode)
 	}
 	return nil
