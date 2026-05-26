@@ -54,8 +54,8 @@ func (f *descriptionFetcher) fetch(ctx context.Context, rawURL string) string {
 	}
 
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, http.NoBody)
-	req.Header.Set("User-Agent", "tt-bot/1.0")
-	req.Header.Set("Accept", "text/html,application/xhtml+xml")
+	req.Header["User-Agent"] = []string{"tt-bot/1.0"}
+	req.Header["Accept"] = []string{"text/html,application/xhtml+xml"}
 
 	resp, err := f.client.Do(req)
 	if err != nil {
