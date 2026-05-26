@@ -642,7 +642,7 @@ func DescriptionPageSize(baseMsg, descrLink string) int {
 // SplitDescription splits text into pages that fit within maxPerPage bytes.
 // Truncation is UTF-8 safe. Empty pages are skipped to prevent infinite loops.
 func SplitDescription(text string, maxPerPage int) []string {
-	if maxPerPage < 1 || text == "" {
+	if maxPerPage < 1 {
 		return nil
 	}
 	var pages []string
@@ -665,7 +665,7 @@ func SplitDescription(text string, maxPerPage int) []string {
 }
 
 func appendDescriptionPaginated(msg, description string, page, totalPages int) string {
-	if description == "" || totalPages <= 0 || page <= 0 || page > totalPages {
+	if description == "" || page < 1 || page > totalPages {
 		return msg
 	}
 

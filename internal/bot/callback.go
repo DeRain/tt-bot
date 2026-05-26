@@ -1048,6 +1048,14 @@ func (h *Handler) handleSearchSelectCallback(ctx context.Context, cq *tgbotapi.C
 
 //nolint:gocritic // result is passed by value intentionally
 func (h *Handler) fetchAndUpdateDescription(chatID int64, messageID int, state *SearchState, result qbt.SearchResult) {
+	h.doFetchAndUpdateDescription(chatID, messageID, state, result)
+}
+
+// doFetchAndUpdateDescription is the synchronous implementation of fetchAndUpdateDescription.
+// Exists as a separate method so unit tests can call it directly without the goroutine wrapper.
+//
+//nolint:gocritic // result is passed by value intentionally
+func (h *Handler) doFetchAndUpdateDescription(chatID int64, messageID int, state *SearchState, result qbt.SearchResult) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 

@@ -2078,11 +2078,58 @@ func TestDescriptionPage_UTF8Alignment(t *testing.T) {
 		NbSeeders:  0,
 		NbLeechers: 0,
 	}
-	// Place multi-byte chars at position where page 2 starts.
 	prefix := strings.Repeat("a", formatter.DescriptionPageSize(formatter.FormatSearchConfirmBase(result), "")-1)
 	desc := prefix + "€" + strings.Repeat("b", 100)
 	msg := formatter.FormatSearchConfirm(result, desc, 2, 2)
 	if !utf8.ValidString(msg) {
 		t.Error("message contains invalid UTF-8 after page boundary alignment")
+	}
+}
+
+func TestSplitDescription_ExactBoundary(t *testing.T) {
+	// Text that exactly fills 3 pages — tests boundary arithmetic.
+	text := strings.Repeat("x", 300)
+	pages := formatter.SplitDescription(text, 100)
+	if len(pages) != 3 {
+		t.Errorf("expected 3 pages, got %d", len(pages))
+	}
+	if len(pages) > 0 && len(pages[0]) != 100 {
+		t.Errorf("expected page[0] len 100, got %d", len(pages[0]))
+	}
+}
+
+func TestSplitDescription_LongSinglePage(t *testing.T) {
+	// Text that fits in one page with exact pageSize.
+	text := strings.Repeat("x", 50)
+	pages := formatter.SplitDescription(text, 50)
+	if len(pages) != 1 {
+		t.Errorf("expected 1 page, got %d", len(pages))
+	}
+}
+
+func TestSplitDescription_TrailingPartial(t *testing.T) {
+	// Text that doesn't fill the last page completely.
+	text := strings.Repeat("x", 250)
+	pages := formatter.SplitDescription(text, 100)
+	if len(pages) != 3 {
+		t.Errorf("expected 3 pages, got %d", len(pages))
+	}
+	if len(pages[2]) != 50 {
+		t.Errorf("expected last page len 50, got %d", len(pages[2]))
+	}
+}
+
+func TestFormatSearchConfirm_PageSizeZero(t *testing.T) {
+	// Base message so long that DescriptionPageSize is 0.
+	result := qbt.SearchResult{
+		FileName:   strings.Repeat("a", formatter.MaxMessageLength),
+		FileSize:   0,
+		NbSeeders:  0,
+		NbLeechers: 0,
+	}
+	msg := formatter.FormatSearchConfirm(result, "desc", 1, 1)
+	// Description should NOT appear because pageSize is too small.
+	if strings.Contains(msg, "Description:") && len(msg) > formatter.MaxMessageLength {
+		t.Errorf("message exceeds limit with description")
 	}
 }

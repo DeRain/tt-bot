@@ -470,15 +470,16 @@ func TestFetchAndUpdateDescription_StoresDescription(t *testing.T) {
 		DescrLink:  descServer.URL,
 	}
 	state := &SearchState{
-		ChatID:    1,
-		MessageID: 100,
-		JobID:     42,
-		Results:   []qbt.SearchResult{result},
-		Total:     1,
+		ChatID:       1,
+		MessageID:    100,
+		JobID:        42,
+		Results:      []qbt.SearchResult{result},
+		Total:        1,
+		SelectedIdx:  5, // non-zero to expose ARITHMETIC_BASE on division
 	}
 	h.storeSearch(1, state)
 
-	h.fetchAndUpdateDescription(1, 100, state, result)
+	h.doFetchAndUpdateDescription(1, 100, state, result)
 
 	s := h.getSearch(1)
 	if s == nil {
@@ -489,6 +490,10 @@ func TestFetchAndUpdateDescription_StoresDescription(t *testing.T) {
 	}
 	if s.DescriptionPages == 0 {
 		t.Error("expected DescriptionPages > 0")
+	}
+	// Verify edit was sent with description content.
+	if !sender.hasEditText("Stored description") {
+		t.Error("expected edit with description text")
 	}
 }
 
@@ -514,7 +519,7 @@ func TestFetchAndUpdateDescription_NoDescrLink(t *testing.T) {
 	}
 	h.storeSearch(1, state)
 
-	h.fetchAndUpdateDescription(1, 100, state, result)
+	h.doFetchAndUpdateDescription(1, 100, state, result)
 
 	s := h.getSearch(1)
 	if s != nil && s.DescriptionText != "" {
@@ -550,7 +555,7 @@ func TestFetchAndUpdateDescription_EmptyResult(t *testing.T) {
 	}
 	h.storeSearch(1, state)
 
-	h.fetchAndUpdateDescription(1, 100, state, result)
+	h.doFetchAndUpdateDescription(1, 100, state, result)
 
 	s := h.getSearch(1)
 	if s == nil {

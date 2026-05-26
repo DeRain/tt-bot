@@ -41,7 +41,7 @@ func (f *descriptionFetcher) fetch(ctx context.Context, rawURL string) string {
 	if err != nil {
 		return ""
 	}
-	if parsed.Scheme == "" || parsed.Host == "" {
+	if parsed.Host == "" {
 		return ""
 	}
 	switch parsed.Scheme {
