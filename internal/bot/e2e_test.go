@@ -1627,16 +1627,6 @@ func TestE2E_SearchDescriptionFullFlow(t *testing.T) {
 	}
 }
 
-	// Step 2: Wait for search results.
-	var searchMsgText string
-	for i := 0; i < 30; i++ {
-		time.Sleep(100 * time.Millisecond)
-		texts := sender.sentTexts()
-		if len(texts) > 0 {
-			last := texts[len(texts)-1]
-			if strings.Contains(last, "Search unavailable") {
-				t.Skipf("search unavailable in test environment: %q", last)
-			}
 			if strings.Contains(last, "No torrents found") || strings.Contains(last, "Search timed out") {
 				t.Skipf("no search results for 'ubuntu': %q", last)
 			}
