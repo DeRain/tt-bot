@@ -42,7 +42,8 @@ internal/poller/          → background goroutine polling for completed torrent
 | `make test` | Unit tests with coverage (`go test ./... -short -cover`) |
 | `make test-integration` | Integration + E2E tests in Docker (spins up qBittorrent, runs all `Integration\|E2E` tests, tears down) |
 | `make arch-check` | Validate architecture dependency rules (`arch-go.yml`) |
-| `make gate-all` | Full quality gate: build → lint → test → arch-check |
+| `make gate-all` | Full quality gate: build → lint → test → arch-check → integration → mutation |
+| `make mutation-test-pr` | Mutation testing on PR-changed lines (requires 100% efficacy) |
 | `make clean` | Remove coverage.out and bot binary |
 
 For local services, use `docker compose up --build` to run the bot with qBittorrent. For focused test runs, use commands such as `go test ./internal/qbt -run TestLogin -short -v`.
@@ -160,5 +161,5 @@ LSP: gopls (Go). Key tools: `lsp_find_references`, `lsp_goto_definition`, `lsp_s
 
 CLI fallbacks: `gopls references/implementation/definition file:line:col`, `sg -p 'pattern' -l go`, `rg 'pattern'`, `fd 'pattern'`.
 
-Pre-commit: `lsp_diagnostics` → `make gate-all` → `make test-integration` (API changes).
+Pre-commit: `lsp_diagnostics` → `make gate-all` (covers build, lint, test, arch, integration, mutation).
 <!-- code-intel:end -->

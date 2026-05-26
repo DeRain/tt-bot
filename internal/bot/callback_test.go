@@ -2099,3 +2099,218 @@ func TestCallback_DescriptionPageCallback_InvalidFormat(t *testing.T) {
 		t.Fatalf("expected 'Invalid action' callback answer, got: %v", sender.sentMessages)
 	}
 }
+
+func TestCallback_SearchSelect_DescriptionStateReset(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	results := []qbt.SearchResult{
+		{FileName: "Ubuntu", FileSize: 1024, NbSeeders: 10, FileURL: "magnet:?xt=urn:btih:abc",
+			DescrLink: "https://example.com/desc"},
+	}
+	h.storeSearch(1, &SearchState{
+		ChatID:           1,
+		MessageID:        100,
+		JobID:            123,
+		Results:          results,
+		Total:            1,
+		DescriptionText:  "old desc",
+		DescriptionPages: 5,
+		SelectedIdx:      99,
+	})
+
+	update := newCallbackUpdate(1, "cb-sr", "sr:123:0")
+	h.HandleUpdate(context.Background(), update)
+
+	s := h.getSearch(1)
+	if s == nil {
+		t.Fatal("search state not found after select")
+	}
+	if s.DescriptionText != "" {
+		t.Errorf("expected DescriptionText reset to empty, got %q", s.DescriptionText)
+	}
+	if s.DescriptionPages != 0 {
+		t.Errorf("expected DescriptionPages reset to 0, got %d", s.DescriptionPages)
+	}
+	if s.SelectedIdx != 0 {
+		t.Errorf("expected SelectedIdx = 0, got %d", s.SelectedIdx)
+	}
+}
+
+func TestCallback_SearchSelect_NoDescrLink(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	results := []qbt.SearchResult{
+		{FileName: "Ubuntu", FileSize: 1024, NbSeeders: 10, FileURL: "magnet:?xt=urn:btih:abc"},
+	}
+	h.storeSearch(1, &SearchState{
+		ChatID:    1,
+		MessageID: 100,
+		JobID:     123,
+		Results:   results,
+		Total:     1,
+	})
+
+	update := newCallbackUpdate(1, "cb-sr", "sr:123:0")
+	h.HandleUpdate(context.Background(), update)
+
+	if sender.hasEditText("More info:") {
+		t.Error("expected no More info when DescrLink is empty")
+	}
+}
+
+func TestCallback_DescriptionPage_NonNumericJobID(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	update := newCallbackUpdate(1, "cb-dp", "dp:abc:0:1")
+	h.HandleUpdate(context.Background(), update)
+
+	foundAnswer := false
+	for _, msg := range sender.sentMessages {
+		if cb, ok := msg.(tgbotapi.CallbackConfig); ok && cb.Text == "Invalid action." {
+			foundAnswer = true
+			break
+		}
+	}
+	if !foundAnswer {
+		t.Fatal("expected 'Invalid action.' for non-numeric jobID")
+	}
+}
+
+func TestCallback_DescriptionPage_NonNumericIdx(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	update := newCallbackUpdate(1, "cb-dp", "dp:42:abc:1")
+	h.HandleUpdate(context.Background(), update)
+
+	foundAnswer := false
+	for _, msg := range sender.sentMessages {
+		if cb, ok := msg.(tgbotapi.CallbackConfig); ok && cb.Text == "Invalid action." {
+			foundAnswer = true
+			break
+		}
+	}
+	if !foundAnswer {
+		t.Fatal("expected 'Invalid action.' for non-numeric idx")
+	}
+}
+
+func TestCallback_DescriptionPage_NegativePage(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	update := newCallbackUpdate(1, "cb-dp", "dp:42:0:-1")
+	h.HandleUpdate(context.Background(), update)
+
+	foundAnswer := false
+	for _, msg := range sender.sentMessages {
+		if cb, ok := msg.(tgbotapi.CallbackConfig); ok && cb.Text == "Invalid action." {
+			foundAnswer = true
+			break
+		}
+	}
+	if !foundAnswer {
+		t.Fatal("expected 'Invalid action.' for negative page")
+	}
+}
+
+func TestCallback_DescriptionPage_ZeroPage(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	update := newCallbackUpdate(1, "cb-dp", "dp:42:0:0")
+	h.HandleUpdate(context.Background(), update)
+
+	foundAnswer := false
+	for _, msg := range sender.sentMessages {
+		if cb, ok := msg.(tgbotapi.CallbackConfig); ok && cb.Text == "Invalid action." {
+			foundAnswer = true
+			break
+		}
+	}
+	if !foundAnswer {
+		t.Fatal("expected 'Invalid action.' for page 0")
+	}
+}
+
+func TestCallback_DescriptionPage_NoDescriptionText(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	results := []qbt.SearchResult{
+		{FileName: "Test", FileSize: 1024, NbSeeders: 1, FileURL: "magnet:?xt=urn:btih:abc"},
+	}
+	h.storeSearch(1, &SearchState{
+		ChatID:    1,
+		MessageID: 100,
+		JobID:     42,
+		Results:   results,
+		Total:     1,
+	})
+
+	update := newCallbackUpdate(1, "cb-dp", "dp:42:0:1")
+	h.HandleUpdate(context.Background(), update)
+
+	foundAnswer := false
+	for _, msg := range sender.sentMessages {
+		if cb, ok := msg.(tgbotapi.CallbackConfig); ok && cb.Text == "Search expired." {
+			foundAnswer = true
+			break
+		}
+	}
+	if !foundAnswer {
+		t.Fatal("expected 'Search expired.' when DescriptionText is empty")
+	}
+}
+
+func TestCallback_DescriptionPage_WrongJobID(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	results := []qbt.SearchResult{
+		{FileName: "Test", FileSize: 1024, NbSeeders: 1, FileURL: "magnet:?xt=urn:btih:abc"},
+	}
+	h.storeSearch(1, &SearchState{
+		ChatID:           1,
+		MessageID:        100,
+		JobID:            99,
+		Results:          results,
+		Total:            1,
+		DescriptionText:  "desc",
+		DescriptionPages: 1,
+	})
+
+	// Callback references jobID=42, but stored state has JobID=99.
+	update := newCallbackUpdate(1, "cb-dp", "dp:42:0:1")
+	h.HandleUpdate(context.Background(), update)
+
+	foundAnswer := false
+	for _, msg := range sender.sentMessages {
+		if cb, ok := msg.(tgbotapi.CallbackConfig); ok && cb.Text == "Search expired." {
+			foundAnswer = true
+			break
+		}
+	}
+	if !foundAnswer {
+		t.Fatal("expected 'Search expired.' for mismatched JobID")
+	}
+}

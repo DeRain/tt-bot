@@ -44,7 +44,7 @@ test-integration:
 	docker compose -f docker-compose.test.yml up --build --abort-on-container-exit integration-tests
 	docker compose -f docker-compose.test.yml down
 
-gate-all: build lint test check-coverage arch-check mutation-test-pr
+gate-all: build lint test check-coverage arch-check test-integration mutation-test-pr
 
 clean:
 	rm -f coverage.out

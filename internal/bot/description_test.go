@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestDescriptionFetcher_MetaDescription(t *testing.T) {
@@ -210,5 +211,239 @@ func TestDescriptionFetcher_MetaTakesPriorityOverOG(t *testing.T) {
 	}
 	if strings.Contains(desc, "og desc") {
 		t.Errorf("expected og description to not appear when meta is present, got: %q", desc)
+	}
+}
+
+// TestDescriptionFetcher_TimeoutValue verifies the HTTP client timeout is exactly 5s.
+// Kills ARITHMETIC_BASE mutant on descriptionFetchTimeout constant.
+func TestDescriptionFetcher_TimeoutValue(t *testing.T) {
+	f := newDescriptionFetcher()
+	// Hardcoded expected value to catch ARITHMETIC_BASE mutant (5*time.Second → 5/time.Second = 5ns).
+	if f.client.Timeout != 5*time.Second {
+		t.Errorf("expected timeout 5s, got %v", f.client.Timeout)
+	}
+}
+
+// TestDescriptionFetcher_BodySizeLimit verifies that responses larger than descriptionMaxBytes
+// are truncated. Kills ARITHMETIC_BASE mutant on descriptionMaxBytes constant.
+func TestDescriptionFetcher_BodySizeLimit(t *testing.T) {
+	// Build response where the ONLY description is at byte offset just beyond 256KB.
+	// The LimitReader should cut off before reaching it if max is correct.
+	// If ARITHMETIC_BASE changes 256*1024 to 256/1024 (0), nothing is read.
+	padding := strings.Repeat("x", int(descriptionMaxBytes)+100)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(`<html><meta name="description" content="` + padding + `found"></html>`))
+	}))
+	defer server.Close()
+
+	f := newDescriptionFetcher()
+	desc := f.fetch(context.Background(), server.URL)
+
+	// The fetched description should be truncated to fit within the limit.
+	if len(desc) == 0 {
+		t.Error("expected non-empty description (body size limit should allow reading)")
+	}
+	// The truncated description should be significantly shorter than the full padding.
+	if len(desc) > int(descriptionMaxBytes)+100 {
+		t.Errorf("description %d bytes exceeds limit of %d", len(desc), int(descriptionMaxBytes)+100)
+	}
+}
+
+// TestDescriptionFetcher_HeadersSet verifies User-Agent and Accept headers are set.
+// Kills STATEMENT_REMOVE mutants on req.Header.Set calls.
+func TestDescriptionFetcher_HeadersSet(t *testing.T) {
+	var userAgent, accept string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		userAgent = r.Header.Get("User-Agent")
+		accept = r.Header.Get("Accept")
+		w.Write([]byte(`<html><meta name="description" content="test"></html>`))
+	}))
+	defer server.Close()
+
+	f := newDescriptionFetcher()
+	_ = f.fetch(context.Background(), server.URL)
+
+	if userAgent == "" {
+		t.Error("expected User-Agent header to be set")
+	}
+	if accept == "" {
+		t.Error("expected Accept header to be set")
+	}
+}
+
+// TestDescriptionFetcher_SSRFBlocked verifies that loopback addresses are rejected
+// by isPublicHostname. Kills BRANCH_IF mutant on line 47.
+func TestDescriptionFetcher_SSRFBlocked(t *testing.T) {
+	tests := []struct {
+		name, url string
+	}{
+		{"loopback", "http://127.0.0.1/"},
+		{"localhost", "http://localhost/"},
+		{"private", "http://10.0.0.1/"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newDescriptionFetcher()
+			desc := f.fetch(context.Background(), tt.url)
+			if desc != "" {
+				t.Errorf("expected empty description for blocked host %q, got: %q", tt.url, desc)
+			}
+		})
+	}
+}
+
+// TestDescriptionFetcher_Non200WithBody verifies that non-200 responses are rejected
+// even when they contain a description. Kills BRANCH_IF mutant on line 64.
+func TestDescriptionFetcher_Non200WithBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(`<html><meta name="description" content="should not appear"></html>`))
+	}))
+	defer server.Close()
+
+	f := newDescriptionFetcher()
+	desc := f.fetch(context.Background(), server.URL)
+
+	if desc != "" {
+		t.Errorf("expected empty description for 404 with body, got: %q", desc)
+	}
+}
+
+// TestDescriptionFetcher_BodyHTMLEntities verifies HTML entities in body text are decoded.
+// Kills STATEMENT_REMOVE mutant on decodeEntities call (line 91).
+func TestDescriptionFetcher_BodyHTMLEntities(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(`<html><body><p>Price: &amp; more</p></body></html>`))
+	}))
+	defer server.Close()
+
+	f := newDescriptionFetcher()
+	desc := f.fetch(context.Background(), server.URL)
+
+	if !strings.Contains(desc, "Price: & more") {
+		t.Errorf("expected decoded ampersand in body text, got: %q", desc)
+	}
+	if strings.Contains(desc, "&amp;") {
+		t.Errorf("expected entity decoded, got raw: %q", desc)
+	}
+}
+
+// TestDescriptionFetcher_WhitespaceCollapsed verifies multiple spaces are collapsed.
+// Kills STATEMENT_REMOVE mutant on inSpace assignment (line 99).
+func TestDescriptionFetcher_WhitespaceCollapsed(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		// Multiple spaces, tabs, newlines in body text.
+		w.Write([]byte(`<html><body><p>word1  		word2
+
+word3</p></body></html>`))
+	}))
+	defer server.Close()
+
+	f := newDescriptionFetcher()
+	desc := f.fetch(context.Background(), server.URL)
+
+	if strings.Contains(desc, "  ") {
+		t.Errorf("expected collapsed whitespace (no double spaces), got: %q", desc)
+	}
+	if !strings.Contains(desc, "word1 word2 word3") {
+		t.Errorf("expected 'word1 word2 word3', got: %q", desc)
+	}
+}
+
+// TestDescriptionFetcher_TrimmedResult verifies leading/trailing whitespace is trimmed.
+// Kills STATEMENT_REMOVE mutant on TrimSpace call (line 110).
+func TestDescriptionFetcher_TrimmedResult(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		// Body text with leading/trailing spaces from HTML structure.
+		w.Write([]byte(`<html><body>
+	<p>  trimmed content  </p>
+</body></html>`))
+	}))
+	defer server.Close()
+
+	f := newDescriptionFetcher()
+	desc := f.fetch(context.Background(), server.URL)
+
+	if strings.HasPrefix(desc, " ") || strings.HasSuffix(desc, " ") {
+		t.Errorf("expected trimmed result, got: %q", desc)
+	}
+}
+
+// TestDescriptionFetcher_MetaSingleChar tests that meta description matches even
+// with single-character content. Kills CONDITIONALS_BOUNDARY on line 80.
+func TestDescriptionFetcher_MetaSingleChar(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(`<html><meta name="description" content="x"></html>`))
+	}))
+	defer server.Close()
+
+	f := newDescriptionFetcher()
+	desc := f.fetch(context.Background(), server.URL)
+
+	if desc != "x" {
+		t.Errorf("expected 'x', got: %q", desc)
+	}
+}
+
+// TestDescriptionFetcher_OGSingleChar tests that og:description matches even
+// with single-character content. Kills CONDITIONALS_BOUNDARY on line 83.
+func TestDescriptionFetcher_OGSingleChar(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(`<html><meta property="og:description" content="y"></html>`))
+	}))
+	defer server.Close()
+
+	f := newDescriptionFetcher()
+	desc := f.fetch(context.Background(), server.URL)
+
+	if desc != "y" {
+		t.Errorf("expected 'y', got: %q", desc)
+	}
+}
+
+// TestDescriptionFetcher_OnlyMetaWithoutOG verifies desc is empty when meta is absent
+// and OG regex matches but produces empty capture. Kills BRANCH_IF on line 83.
+func TestDescriptionFetcher_OnlyOGAsFallback(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		// No meta description, only og:description — should fall back to OG.
+		w.Write([]byte(`<html><head><meta property="og:description" content="og only"></head><body></body></html>`))
+	}))
+	defer server.Close()
+
+	f := newDescriptionFetcher()
+	desc := f.fetch(context.Background(), server.URL)
+
+	if !strings.Contains(desc, "og only") {
+		t.Errorf("expected OG description fallback, got: %q", desc)
+	}
+}
+
+// TestDescriptionFetcher_InvalidURLNoHost verifies that a URL without a host is rejected
+// by the URL parsing guard. Kills BRANCH_IF on line 41 and EXPRESSION_REMOVE on parsed.Host.
+func TestDescriptionFetcher_InvalidURLNoHost(t *testing.T) {
+	f := newDescriptionFetcher()
+
+	tests := []struct {
+		name, url string
+	}{
+		{"no host", "http:///path"},
+		{"relative path", "/relative/path"},
+		{"colon only", ":"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			desc := f.fetch(context.Background(), tt.url)
+			if desc != "" {
+				t.Errorf("expected empty for %q, got: %q", tt.url, desc)
+			}
+		})
 	}
 }

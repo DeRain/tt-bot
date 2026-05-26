@@ -642,16 +642,13 @@ func DescriptionPageSize(baseMsg, descrLink string) int {
 // SplitDescription splits text into pages that fit within maxPerPage bytes.
 // Truncation is UTF-8 safe. Empty pages are skipped to prevent infinite loops.
 func SplitDescription(text string, maxPerPage int) []string {
-	if maxPerPage <= 0 || text == "" {
+	if maxPerPage < 1 || text == "" {
 		return nil
 	}
 	var pages []string
 	remaining := text
 	for remaining != "" {
-		end := maxPerPage
-		if end > len(remaining) {
-			end = len(remaining)
-		}
+		end := min(maxPerPage, len(remaining))
 		page := remaining[:end]
 		for !utf8.Valid([]byte(page)) && page != "" {
 			page = page[:len(page)-1]
@@ -697,17 +694,13 @@ func descriptionPage(text string, page, pageSize int) string {
 	if offset >= len(text) {
 		return ""
 	}
-	// Align offset to the next valid UTF-8 start boundary.
 	for offset < len(text) && offset > 0 && !utf8.RuneStart(text[offset]) {
 		offset++
 	}
 	if offset >= len(text) {
 		return ""
 	}
-	end := offset + pageSize
-	if end > len(text) {
-		end = len(text)
-	}
+	end := min(offset+pageSize, len(text))
 	result := text[offset:end]
 	for !utf8.Valid([]byte(result)) && result != "" {
 		result = result[:len(result)-1]
@@ -774,23 +767,21 @@ func SearchConfirmKeyboard(jobID, resultIdx, page int) Keyboard {
 // description pagination buttons.
 func SearchConfirmKeyboardWithDesc(jobID, resultIdx, listPage, descPage, descTotal int) Keyboard {
 	kb := SearchConfirmKeyboard(jobID, resultIdx, listPage)
-	if descTotal > 1 {
-		btnRow := ButtonRow{}
-		if descPage > 1 {
-			btnRow = append(btnRow, Button{
-				Text:         "▲ Prev page",
-				CallbackData: fmt.Sprintf("dp:%d:%d:%d", jobID, resultIdx, descPage-1),
-			})
-		}
-		if descPage < descTotal {
-			btnRow = append(btnRow, Button{
-				Text:         "▼ Next page",
-				CallbackData: fmt.Sprintf("dp:%d:%d:%d", jobID, resultIdx, descPage+1),
-			})
-		}
-		if len(btnRow) > 0 {
-			kb = append(kb, btnRow)
-		}
+	btnRow := ButtonRow{}
+	if descPage > 1 {
+		btnRow = append(btnRow, Button{
+			Text:         "▲ Prev page",
+			CallbackData: fmt.Sprintf("dp:%d:%d:%d", jobID, resultIdx, descPage-1),
+		})
+	}
+	if descPage < descTotal {
+		btnRow = append(btnRow, Button{
+			Text:         "▼ Next page",
+			CallbackData: fmt.Sprintf("dp:%d:%d:%d", jobID, resultIdx, descPage+1),
+		})
+	}
+	if len(btnRow) > 0 {
+		kb = append(kb, btnRow)
 	}
 	return kb
 }

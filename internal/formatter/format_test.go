@@ -1585,6 +1585,78 @@ func TestSearchConfirmKeyboard_WithDescSinglePage(t *testing.T) {
 			}
 		}
 	}
+	// Verify no empty rows: exactly 2 rows (Add, Back), no extra pagination row.
+	if len(kb) != 2 {
+		t.Errorf("expected exactly 2 rows for single page, got %d", len(kb))
+	}
+}
+
+func TestSearchConfirmKeyboardWithDesc_FirstPage(t *testing.T) {
+	kb := formatter.SearchConfirmKeyboardWithDesc(42, 5, 2, 1, 3)
+	foundPrev, foundNext := false, false
+	for _, row := range kb {
+		for _, btn := range row {
+			if strings.Contains(btn.Text, "Prev") {
+				foundPrev = true
+			}
+			if strings.Contains(btn.Text, "Next") {
+				foundNext = true
+			}
+		}
+	}
+	if foundPrev {
+		t.Error("expected no Prev button on first page")
+	}
+	if !foundNext {
+		t.Error("expected Next button on first page of multi-page")
+	}
+}
+
+func TestSearchConfirmKeyboardWithDesc_LastPage(t *testing.T) {
+	kb := formatter.SearchConfirmKeyboardWithDesc(42, 5, 2, 3, 3)
+	foundPrev, foundNext := false, false
+	for _, row := range kb {
+		for _, btn := range row {
+			if strings.Contains(btn.Text, "Prev") {
+				foundPrev = true
+			}
+			if strings.Contains(btn.Text, "Next") {
+				foundNext = true
+			}
+		}
+	}
+	if !foundPrev {
+		t.Error("expected Prev button on last page")
+	}
+	if foundNext {
+		t.Error("expected no Next button on last page")
+	}
+}
+
+func TestSearchConfirmKeyboardWithDesc_CallbackValues(t *testing.T) {
+	kb := formatter.SearchConfirmKeyboardWithDesc(99, 7, 1, 2, 4)
+	for _, row := range kb {
+		for _, btn := range row {
+			if strings.Contains(btn.Text, "Prev") {
+				if !strings.Contains(btn.CallbackData, "dp:99:7:1") {
+					t.Errorf("expected dp:99:7:1 in Prev callback, got %q", btn.CallbackData)
+				}
+			}
+			if strings.Contains(btn.Text, "Next") {
+				if !strings.Contains(btn.CallbackData, "dp:99:7:3") {
+					t.Errorf("expected dp:99:7:3 in Next callback, got %q", btn.CallbackData)
+				}
+			}
+		}
+	}
+}
+
+func TestSearchConfirmKeyboardWithDesc_NoExtraRowForEmpty(t *testing.T) {
+	// descPage=1, descTotal=0: should not have pagination row.
+	kb := formatter.SearchConfirmKeyboardWithDesc(42, 5, 2, 1, 0)
+	if len(kb) != 2 {
+		t.Errorf("expected exactly 2 rows (no pagination), got %d", len(kb))
+	}
 }
 
 func TestSplitDescription(t *testing.T) {
@@ -1597,9 +1669,11 @@ func TestSplitDescription(t *testing.T) {
 	}{
 		{"empty", "", 100, 0, true},
 		{"zero size", "hello", 0, 0, true},
+		{"negative size", "hello", -1, 0, true},
 		{"fits one page", "hello", 100, 1, false},
 		{"multi page", strings.Repeat("x", 200), 100, 2, false},
 		{"exact boundary", strings.Repeat("x", 100), 100, 1, false},
+		{"min page size 1", "abc", 1, 3, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1697,5 +1771,163 @@ func TestPriorityKeyboard_AllCallbacksUnderLimit(t *testing.T) {
 					btn.CallbackData, len(btn.CallbackData), formatter.MaxCallbackData)
 			}
 		}
+	}
+}
+
+// Additional tests for description-related functions — kill CONDITIONALS_BOUNDARY,
+// ARITHMETIC_BASE, BRANCH_IF, and INVERT_LOGICAL mutants.
+
+func TestDescriptionPageSize_NoLink(t *testing.T) {
+	base := formatter.FormatSearchConfirmBase(qbt.SearchResult{FileName: "test"})
+	ps := formatter.DescriptionPageSize(base, "")
+	if ps <= 0 {
+		t.Errorf("expected positive page size, got %d", ps)
+	}
+}
+
+func TestDescriptionPageSize_WithLink(t *testing.T) {
+	base := formatter.FormatSearchConfirmBase(qbt.SearchResult{FileName: "test", DescrLink: "https://example.com/t"})
+	psNoLink := formatter.DescriptionPageSize(base, "")
+	psWithLink := formatter.DescriptionPageSize(base, "https://example.com/t")
+	if psWithLink >= psNoLink {
+		t.Errorf("page size with link (%d) should be less than without link (%d)", psWithLink, psNoLink)
+	}
+}
+
+func TestDescriptionPageSize_LinkConsumedExactly(t *testing.T) {
+	// Verify DescriptionPageSize subtracts the link line length.
+	base := "x"
+	ps := formatter.DescriptionPageSize(base, "https://example.com/t")
+	expected := formatter.MaxMessageLength - 1 - len(base) - len("\n\nMore info: https://example.com/t") - 32
+	if ps != expected {
+		t.Errorf("expected page size %d, got %d", expected, ps)
+	}
+}
+
+func TestFormatSearchConfirm_NoDescriptionNoLink(t *testing.T) {
+	result := qbt.SearchResult{
+		FileName:   "test",
+		FileSize:   100,
+		NbSeeders:  1,
+		NbLeechers: 0,
+	}
+	msg := formatter.FormatSearchConfirm(result, "", 0, 0)
+	if strings.Contains(msg, "Description:") {
+		t.Error("unexpected Description: label when description is empty")
+	}
+	if strings.Contains(msg, "More info:") {
+		t.Error("unexpected More info: when DescrLink is empty")
+	}
+}
+
+func TestFormatSearchConfirm_InvalidPage(t *testing.T) {
+	result := qbt.SearchResult{
+		FileName:   "test",
+		FileSize:   100,
+		NbSeeders:  1,
+		NbLeechers: 0,
+	}
+	// page=0 should be rejected (no Description:)
+	msg0 := formatter.FormatSearchConfirm(result, "desc", 0, 1)
+	if strings.Contains(msg0, "Description:") {
+		t.Error("expected no Description: for page=0")
+	}
+	// page > totalPages
+	msgOver := formatter.FormatSearchConfirm(result, "desc", 5, 3)
+	if strings.Contains(msgOver, "Description:") {
+		t.Error("expected no Description: when page > totalPages")
+	}
+	// negative totalPages
+	msgNeg := formatter.FormatSearchConfirm(result, "desc", 1, -1)
+	if strings.Contains(msgNeg, "Description:") {
+		t.Error("expected no Description: for negative totalPages")
+	}
+}
+
+func TestFormatSearchConfirm_ShortBaseMessage(t *testing.T) {
+	// Base message so short that DescriptionPageSize is close to limit.
+	result := qbt.SearchResult{
+		FileName:   strings.Repeat("a", formatter.MaxMessageLength-200),
+		FileSize:   100,
+		NbSeeders:  1,
+		NbLeechers: 0,
+	}
+	msg := formatter.FormatSearchConfirm(result, "short desc", 1, 1)
+	// Should still contain the description if pageSize >= 16.
+	if !strings.Contains(msg, "Description:") || !strings.Contains(msg, "short desc") {
+		t.Errorf("expected description in message, got: %q", msg)
+	}
+}
+
+func TestFormatSearchConfirm_MultiPageLabels(t *testing.T) {
+	result := qbt.SearchResult{
+		FileName:   "Ubuntu 24.04 LTS",
+		FileSize:   4 * 1024 * 1024 * 1024,
+		NbSeeders:  100,
+		NbLeechers: 20,
+	}
+	baseMsg := formatter.FormatSearchConfirmBase(result)
+	pageSize := formatter.DescriptionPageSize(baseMsg, "")
+	// Single page
+	msg1 := formatter.FormatSearchConfirm(result, "short desc", 1, 1)
+	if strings.Contains(msg1, "page") {
+		t.Error("single page should not show page number in label")
+	}
+	if !strings.Contains(msg1, "Description:") {
+		t.Error("single page should have Description: label")
+	}
+	// Multi-page: description long enough to fill more than one page.
+	longDesc := strings.Repeat("x", pageSize+10)
+	msg2 := formatter.FormatSearchConfirm(result, longDesc, 2, 2)
+	if !strings.Contains(msg2, "Description (page 2/2):") {
+		t.Errorf("expected 'Description (page 2/2):', got label area: %q", msg2[len(msg2)-50:])
+	}
+}
+
+func TestFormatSearchConfirm_MessageNeverExceedsLimit(t *testing.T) {
+	result := qbt.SearchResult{
+		FileName:   strings.Repeat("a", 1000),
+		FileSize:   4 * 1024 * 1024 * 1024,
+		NbSeeders:  100,
+		NbLeechers: 20,
+		DescrLink:  "https://example.com/xxx",
+	}
+	longDesc := strings.Repeat("x", 5000)
+	msg := formatter.FormatSearchConfirm(result, longDesc, 1, 1)
+	if len(msg) > formatter.MaxMessageLength {
+		t.Errorf("message %d bytes exceeds limit of %d", len(msg), formatter.MaxMessageLength)
+	}
+	if !utf8.ValidString(msg) {
+		t.Error("message contains invalid UTF-8")
+	}
+}
+
+func TestSplitDescription_UTF8MidBoundary(t *testing.T) {
+	// € is 3 bytes in UTF-8 (0xE2 0x82 0xAC). Use page size that cuts mid-character.
+	text := "a€b"
+	pages := formatter.SplitDescription(text, 2) // cuts into middle of € (bytes 0-1: "a\xe2")
+	for _, p := range pages {
+		if !utf8.ValidString(p) {
+			t.Errorf("page contains invalid UTF-8: %q", p)
+		}
+	}
+	if len(pages) == 0 {
+		t.Error("expected at least one page")
+	}
+}
+
+func TestSplitDescription_LongText(t *testing.T) {
+	text := strings.Repeat("x", 10000)
+	pages := formatter.SplitDescription(text, 200)
+	if len(pages) != 50 {
+		t.Errorf("expected 50 pages, got %d", len(pages))
+	}
+	// Verify concatenation reconstructs original.
+	var rebuilt strings.Builder
+	for _, p := range pages {
+		rebuilt.WriteString(p)
+	}
+	if rebuilt.String() != text {
+		t.Error("rebuilt text does not match original")
 	}
 }

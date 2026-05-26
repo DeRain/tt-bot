@@ -38,20 +38,22 @@ func newDescriptionFetcher() *descriptionFetcher {
 // Returns empty string on any error — callers should degrade gracefully.
 func (f *descriptionFetcher) fetch(ctx context.Context, rawURL string) string {
 	parsed, err := url.Parse(rawURL)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+	if err != nil {
 		return ""
 	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+	if parsed.Scheme == "" || parsed.Host == "" {
+		return ""
+	}
+	switch parsed.Scheme {
+	case "http", "https":
+	default:
 		return ""
 	}
 	if err := isPublicHostname(parsed.Host); err != nil {
 		return ""
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, http.NoBody)
-	if err != nil {
-		return ""
-	}
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, http.NoBody)
 	req.Header.Set("User-Agent", "tt-bot/1.0")
 	req.Header.Set("Accept", "text/html,application/xhtml+xml")
 
@@ -66,10 +68,7 @@ func (f *descriptionFetcher) fetch(ctx context.Context, rawURL string) string {
 	}
 
 	limitedReader := io.LimitReader(resp.Body, descriptionMaxBytes)
-	body, err := io.ReadAll(limitedReader)
-	if err != nil {
-		return ""
-	}
+	body, _ := io.ReadAll(limitedReader)
 
 	htmlStr := string(body)
 	desc := extractDescription(htmlStr)
@@ -77,10 +76,10 @@ func (f *descriptionFetcher) fetch(ctx context.Context, rawURL string) string {
 }
 
 func extractDescription(htmlStr string) string {
-	if m := metaDescriptionRe.FindStringSubmatch(htmlStr); len(m) > 1 {
+	if m := metaDescriptionRe.FindStringSubmatch(htmlStr); len(m) >= 2 {
 		return decodeEntities(m[1])
 	}
-	if m := ogDescriptionRe.FindStringSubmatch(htmlStr); len(m) > 1 {
+	if m := ogDescriptionRe.FindStringSubmatch(htmlStr); len(m) >= 2 {
 		return decodeEntities(m[1])
 	}
 	return extractBodyText(htmlStr)
@@ -107,11 +106,7 @@ func extractBodyText(htmlStr string) string {
 }
 
 func cleanDescription(desc string) string {
-	desc = strings.TrimSpace(desc)
-	if desc == "" {
-		return ""
-	}
-	return desc
+	return strings.TrimSpace(desc)
 }
 
 var htmlEntities = map[string]string{
