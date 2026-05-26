@@ -1587,6 +1587,46 @@ func TestSearchConfirmKeyboard_WithDescSinglePage(t *testing.T) {
 	}
 }
 
+func TestSplitDescription(t *testing.T) {
+	tests := []struct {
+		name       string
+		text       string
+		maxPerPage int
+		wantPages  int
+		wantEmpty  bool
+	}{
+		{"empty", "", 100, 0, true},
+		{"zero size", "hello", 0, 0, true},
+		{"fits one page", "hello", 100, 1, false},
+		{"multi page", strings.Repeat("x", 200), 100, 2, false},
+		{"exact boundary", strings.Repeat("x", 100), 100, 1, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pages := formatter.SplitDescription(tt.text, tt.maxPerPage)
+			if tt.wantEmpty && len(pages) != 0 {
+				t.Errorf("expected no pages, got %d", len(pages))
+			}
+			if !tt.wantEmpty && len(pages) != tt.wantPages {
+				t.Errorf("expected %d pages, got %d", tt.wantPages, len(pages))
+			}
+		})
+	}
+}
+
+func TestDescriptionPage_OffsetAlign(t *testing.T) {
+	// Force offset to land in middle of multi-byte character.
+	text := "abc" + strings.Repeat("é", 5) + "xyz"
+	// pageSize of 5: page 1 = "abc" + first 2 bytes of é (half char).
+	// The offset align should skip the partial é.
+	pages := formatter.SplitDescription(text, 5)
+	for _, p := range pages {
+		if !utf8.ValidString(p) {
+			t.Errorf("page contains invalid UTF-8: %q", p)
+		}
+	}
+}
+
 func TestSearchConfirmKeyboard(t *testing.T) {
 	kb := formatter.SearchConfirmKeyboard(42, 5, 2)
 
