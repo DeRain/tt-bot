@@ -2077,3 +2077,25 @@ func TestCallback_SearchSelect_WithDescrLink(t *testing.T) {
 		t.Fatalf("expected More info link with DescrLink, got edits: %v", sender.editTexts())
 	}
 }
+
+func TestCallback_DescriptionPageCallback_InvalidFormat(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	// dp:42:0 — only 2 parts, should get "Invalid action."
+	update := newCallbackUpdate(1, "cb-dp", "dp:42:0")
+	h.HandleUpdate(context.Background(), update)
+
+	foundAnswer := false
+	for _, msg := range sender.sentMessages {
+		if cb, ok := msg.(tgbotapi.CallbackConfig); ok && cb.Text == "Invalid action." {
+			foundAnswer = true
+			break
+		}
+	}
+	if !foundAnswer {
+		t.Fatalf("expected 'Invalid action' callback answer, got: %v", sender.sentMessages)
+	}
+}

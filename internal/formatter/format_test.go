@@ -1551,6 +1551,42 @@ func TestFormatSearchConfirm_LinkAndDescription(t *testing.T) {
 	}
 }
 
+func TestSearchConfirmKeyboard_WithDescPagination(t *testing.T) {
+	// Multi-page: should have Prev/Next buttons.
+	kb := formatter.SearchConfirmKeyboardWithDesc(42, 5, 2, 2, 3)
+	// Expect 4 rows: Add, Back, Prev, Next.
+	foundPrev := false
+	foundNext := false
+	for _, row := range kb {
+		for _, btn := range row {
+			if strings.Contains(btn.Text, "Prev") {
+				foundPrev = true
+			}
+			if strings.Contains(btn.Text, "Next") {
+				foundNext = true
+			}
+			if len(btn.CallbackData) > formatter.MaxCallbackData {
+				t.Errorf("callback %q exceeds %d bytes", btn.CallbackData, formatter.MaxCallbackData)
+			}
+		}
+	}
+	if !foundPrev || !foundNext {
+		t.Errorf("expected Prev+Next buttons, got %d rows", len(kb))
+	}
+}
+
+func TestSearchConfirmKeyboard_WithDescSinglePage(t *testing.T) {
+	// Single page: no pagination buttons.
+	kb := formatter.SearchConfirmKeyboardWithDesc(42, 5, 2, 1, 1)
+	for _, row := range kb {
+		for _, btn := range row {
+			if btn.Text == "Prev page" || btn.Text == "Next page" {
+				t.Errorf("expected no pagination for single-page description")
+			}
+		}
+	}
+}
+
 func TestSearchConfirmKeyboard(t *testing.T) {
 	kb := formatter.SearchConfirmKeyboard(42, 5, 2)
 
