@@ -1526,6 +1526,33 @@ func TestFormatSearchConfirm_DescriptionUTF8Truncated(t *testing.T) {
 	}
 }
 
+func TestFormatSearchConfirm_LinkAndDescription(t *testing.T) {
+	result := qbt.SearchResult{
+		FileName:   "Ubuntu 24.04 ISO",
+		FileSize:   2 * 1024 * 1024 * 1024,
+		NbSeeders:  50,
+		NbLeechers: 5,
+		DescrLink:  "https://example.com/torrent/12345",
+	}
+	msg := formatter.FormatSearchConfirm(result, "A reliable Linux distribution for desktop and server use.")
+
+	if !strings.Contains(msg, "More info:") {
+		t.Errorf("expected More info: link line, got: %q", msg)
+	}
+	if !strings.Contains(msg, "https://example.com/torrent/12345") {
+		t.Errorf("expected link URL, got: %q", msg)
+	}
+	if !strings.Contains(msg, "Description:") {
+		t.Errorf("expected Description: section, got: %q", msg)
+	}
+	if !strings.Contains(msg, "A reliable Linux distribution") {
+		t.Errorf("expected description text, got: %q", msg)
+	}
+	if len(msg) > formatter.MaxMessageLength {
+		t.Errorf("message exceeds %d chars: %d", formatter.MaxMessageLength, len(msg))
+	}
+}
+
 func TestSearchConfirmKeyboard(t *testing.T) {
 	kb := formatter.SearchConfirmKeyboard(42, 5, 2)
 

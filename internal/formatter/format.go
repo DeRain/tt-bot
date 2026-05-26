@@ -612,16 +612,50 @@ func SearchPaginationKeyboard(jobID, currentPage, totalPages int) Keyboard {
 
 // FormatSearchConfirm builds a confirmation message for a selected search result.
 // Description is optional; pass empty string to omit the description section.
+// When result.DescrLink is non-empty, a "More info:" link line is always included.
 //
 //nolint:gocritic // result is passed by value intentionally; changing to pointer would require interface changes
 func FormatSearchConfirm(result qbt.SearchResult, description string) string {
-	msg := fmt.Sprintf(
+	msg := buildBaseMessage(result)
+	msg = appendMoreInfoLink(msg, result.DescrLink)
+	msg = appendDescription(msg, description)
+	return msg
+}
+
+//nolint:gocritic // result is passed by value intentionally; matching FormatSearchConfirm convention
+func buildBaseMessage(result qbt.SearchResult) string {
+	return fmt.Sprintf(
 		"Add this torrent?\n\n%s\nSize: %s\nSeeders: %d\nLeechers: %d",
 		result.FileName,
 		FormatSize(result.FileSize),
 		result.NbSeeders,
 		result.NbLeechers,
 	)
+}
+
+func appendMoreInfoLink(msg, descrLink string) string {
+	if descrLink == "" {
+		return msg
+	}
+	descLine := "\n\nMore info: " + descrLink
+	if len(msg)+len(descLine) <= MaxMessageLength-1 {
+		return msg + descLine
+	}
+	avail := MaxMessageLength - 1 - len(msg) - len("\n\nMore info: ") - 3
+	if avail <= 0 {
+		return msg
+	}
+	truncated := descrLink
+	if len(truncated) > avail {
+		truncated = truncated[:avail]
+		for !utf8.Valid([]byte(truncated)) {
+			truncated = truncated[:len(truncated)-1]
+		}
+	}
+	return msg + "\n\nMore info: " + truncated + "..."
+}
+
+func appendDescription(msg, description string) string {
 	if description == "" {
 		return msg
 	}
