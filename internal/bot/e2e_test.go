@@ -1500,3 +1500,87 @@ func TestE2E_DownloadHTTPTorrentAndAdd_ContentTypeRejected(t *testing.T) {
 		t.Fatal("expected downloadSearchTorrent to reject text/html, but it succeeded")
 	}
 }
+
+// TestE2E_DescriptionFetchOnSearchConfirm verifies that when a search result
+// has a DescrLink, the confirmation card shows the link immediately and a
+// background fetch adds the description text.
+func TestE2E_DescriptionFetchOnSearchConfirm(t *testing.T) {
+	const (
+		chatID    = int64(3001)
+		userID    = int64(3001)
+		messageID = 500
+		jobID     = 9999
+	)
+
+	// Start a local HTTP server that serves a description page.
+	descServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(`<!DOCTYPE html>
+<html>
+<head><meta name="description" content="Ubuntu 24.04 LTS Noble Numbat ISO image"></head>
+<body><p>This is the daily build.</p></body>
+</html>`))
+	}))
+	defer descServer.Close()
+
+	qbtClient := getQBTClient(t)
+	sender := &mockSender{}
+	auth := NewAuthorizer([]int64{userID})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	// Store a search state with a result that has a DescrLink.
+	results := []qbt.SearchResult{
+		{
+			FileName:   "Ubuntu 24.04 LTS",
+			FileSize:   4 * 1024 * 1024 * 1024,
+			NbSeeders:  100,
+			NbLeechers: 20,
+			FileURL:    "magnet:?xt=urn:btih:abc",
+			DescrLink:  descServer.URL,
+		},
+	}
+	h.storeSearch(chatID, &SearchState{
+		ChatID:    chatID,
+		MessageID: messageID,
+		JobID:     jobID,
+		Results:   results,
+		Total:     1,
+	})
+
+	// Simulate the search select callback.
+	update := newCallbackUpdate(chatID, "cb-sr", fmt.Sprintf("sr:%d:0", jobID))
+	h.HandleUpdate(context.Background(), update)
+
+	// Verify the initial card has the link.
+	edits := sender.editTexts()
+	if len(edits) == 0 {
+		t.Fatal("expected at least one edit, got none")
+	}
+	initialMsg := edits[len(edits)-1]
+	if !strings.Contains(initialMsg, "More info:") {
+		t.Fatalf("expected More info: link in initial card, got: %q", initialMsg)
+	}
+	if !strings.Contains(initialMsg, descServer.URL) {
+		t.Fatalf("expected DescrLink URL in initial card, got: %q", initialMsg)
+	}
+
+	// Wait for async description fetch (goroutine edits message).
+	var updatedMsg string
+	for i := 0; i < 20; i++ {
+		time.Sleep(100 * time.Millisecond)
+		edits = sender.editTexts()
+		if len(edits) > 0 {
+			last := edits[len(edits)-1]
+			if strings.Contains(last, "Description:") {
+				updatedMsg = last
+				break
+			}
+		}
+	}
+	if updatedMsg == "" {
+		t.Fatal("expected Description: in edited message after async fetch, but not found")
+	}
+	if !strings.Contains(updatedMsg, "Ubuntu 24.04 LTS Noble Numbat") {
+		t.Errorf("expected description text in message, got: %q", updatedMsg)
+	}
+}
