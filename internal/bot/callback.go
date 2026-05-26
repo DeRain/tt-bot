@@ -1030,6 +1030,7 @@ func (h *Handler) handleSearchSelectCallback(ctx context.Context, cq *tgbotapi.C
 	// Reset description state on new selection.
 	state.DescriptionText = ""
 	state.DescriptionPages = 0
+	state.SelectedIdx = idx
 
 	text := formatter.FormatSearchConfirm(result, "", 0, 0)
 	page := idx/formatter.SearchResultsPerPage + 1
@@ -1056,9 +1057,9 @@ func (h *Handler) fetchAndUpdateDescription(chatID int64, messageID int, state *
 		return
 	}
 
-	// Re-validate search state still exists for this chat.
+	// Re-validate search state and selected result index.
 	s := h.getSearch(chatID)
-	if s == nil || s.JobID != state.JobID {
+	if s == nil || s.JobID != state.JobID || s.SelectedIdx != resultIdx {
 		return
 	}
 

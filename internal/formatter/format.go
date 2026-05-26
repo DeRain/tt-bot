@@ -640,7 +640,7 @@ func DescriptionPageSize(baseMsg, descrLink string) int {
 }
 
 // SplitDescription splits text into pages that fit within maxPerPage bytes.
-// Truncation is UTF-8 safe.
+// Truncation is UTF-8 safe. Empty pages are skipped to prevent infinite loops.
 func SplitDescription(text string, maxPerPage int) []string {
 	if maxPerPage <= 0 || text == "" {
 		return nil
@@ -655,6 +655,11 @@ func SplitDescription(text string, maxPerPage int) []string {
 		page := remaining[:end]
 		for !utf8.Valid([]byte(page)) && page != "" {
 			page = page[:len(page)-1]
+		}
+		if page == "" {
+			// Multi-byte character at start consumed the whole window; skip 1 byte.
+			remaining = remaining[1:]
+			continue
 		}
 		pages = append(pages, page)
 		remaining = remaining[len(page):]
@@ -689,6 +694,13 @@ func appendDescriptionPaginated(msg, description string, page, totalPages int) s
 
 func descriptionPage(text string, page, pageSize int) string {
 	offset := (page - 1) * pageSize
+	if offset >= len(text) {
+		return ""
+	}
+	// Align offset to the next valid UTF-8 start boundary.
+	for offset < len(text) && offset > 0 && !utf8.RuneStart(text[offset]) {
+		offset++
+	}
 	if offset >= len(text) {
 		return ""
 	}
