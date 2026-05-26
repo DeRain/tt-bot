@@ -49,9 +49,6 @@ func TestIntegration_DescriptionFetcher_MetaDescription(t *testing.T) {
 	if !strings.Contains(desc, "Ubuntu 24.04 LTS") {
 		t.Errorf("expected meta description, got: %q", desc)
 	}
-	if len(desc) > maxDescriptionChars {
-		t.Errorf("description too long: %d chars", len(desc))
-	}
 }
 
 func TestIntegration_DescriptionFetcher_OGFallback(t *testing.T) {

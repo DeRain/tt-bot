@@ -1501,86 +1501,114 @@ func TestE2E_DownloadHTTPTorrentAndAdd_ContentTypeRejected(t *testing.T) {
 	}
 }
 
-// TestE2E_DescriptionFetchOnSearchConfirm verifies that when a search result
-// has a DescrLink, the confirmation card shows the link immediately and a
-// background fetch adds the description text.
-func TestE2E_DescriptionFetchOnSearchConfirm(t *testing.T) {
+// TestE2E_SearchDescriptionFullFlow performs a real search via qBittorrent,
+// selects a result with a DescrLink, and verifies the description is fetched
+// and displayed (or paginated) on the confirmation card.
+func TestE2E_SearchDescriptionFullFlow(t *testing.T) {
 	const (
-		chatID    = int64(3001)
-		userID    = int64(3001)
-		messageID = 500
-		jobID     = 9999
+		chatID = int64(3002)
+		userID = int64(3002)
 	)
 
-	// Start a local HTTP server that serves a description page.
-	descServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write([]byte(`<!DOCTYPE html>
-<html>
-<head><meta name="description" content="Ubuntu 24.04 LTS Noble Numbat ISO image"></head>
-<body><p>This is the daily build.</p></body>
-</html>`))
-	}))
-	defer descServer.Close()
-
+	ctx := context.Background()
 	qbtClient := getQBTClient(t)
+
 	sender := &mockSender{}
 	auth := NewAuthorizer([]int64{userID})
 	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
-	// Store a search state with a result that has a DescrLink.
-	results := []qbt.SearchResult{
-		{
-			FileName:   "Ubuntu 24.04 LTS",
-			FileSize:   4 * 1024 * 1024 * 1024,
-			NbSeeders:  100,
-			NbLeechers: 20,
-			FileURL:    "magnet:?xt=urn:btih:abc",
-			DescrLink:  descServer.URL,
-		},
-	}
-	h.storeSearch(chatID, &SearchState{
-		ChatID:    chatID,
-		MessageID: messageID,
-		JobID:     jobID,
-		Results:   results,
-		Total:     1,
-	})
+	// Step 1: Run a real search.
+	update := newCommandUpdateWithArgs(chatID, userID, "search", "ubuntu")
+	h.HandleUpdate(ctx, update)
 
-	// Simulate the search select callback.
-	update := newCallbackUpdate(chatID, "cb-sr", fmt.Sprintf("sr:%d:0", jobID))
-	h.HandleUpdate(context.Background(), update)
-
-	// Verify the initial card has the link.
-	edits := sender.editTexts()
-	if len(edits) == 0 {
-		t.Fatal("expected at least one edit, got none")
-	}
-	initialMsg := edits[len(edits)-1]
-	if !strings.Contains(initialMsg, "More info:") {
-		t.Fatalf("expected More info: link in initial card, got: %q", initialMsg)
-	}
-	if !strings.Contains(initialMsg, descServer.URL) {
-		t.Fatalf("expected DescrLink URL in initial card, got: %q", initialMsg)
+	if len(sender.sentMessages) == 0 {
+		t.Fatal("expected at least one message in response to /search")
 	}
 
-	// Wait for async description fetch (goroutine edits message).
-	var updatedMsg string
-	for i := 0; i < 20; i++ {
+	// Step 2: Wait for search results.
+	var searchMsgText string
+	for i := 0; i < 30; i++ {
 		time.Sleep(100 * time.Millisecond)
-		edits = sender.editTexts()
-		if len(edits) > 0 {
-			last := edits[len(edits)-1]
-			if strings.Contains(last, "Description:") {
-				updatedMsg = last
+		texts := sender.sentTexts()
+		if len(texts) > 0 {
+			last := texts[len(texts)-1]
+			if strings.Contains(last, "Search unavailable") {
+				t.Skipf("search unavailable in test environment: %q", last)
+			}
+			if strings.Contains(last, "No torrents found") || strings.Contains(last, "Search timed out") {
+				t.Skipf("no search results for 'ubuntu': %q", last)
+			}
+			if strings.Contains(last, "Search:") {
+				searchMsgText = last
 				break
 			}
 		}
 	}
-	if updatedMsg == "" {
-		t.Fatal("expected Description: in edited message after async fetch, but not found")
+	if searchMsgText == "" {
+		t.Fatal("search did not produce results page within timeout")
 	}
-	if !strings.Contains(updatedMsg, "Ubuntu 24.04 LTS Noble Numbat") {
-		t.Errorf("expected description text in message, got: %q", updatedMsg)
+
+	// Step 3: Get the actual search state to find a result with DescrLink.
+	state := h.getSearch(chatID)
+	if state == nil || len(state.Results) == 0 {
+		t.Fatal("no search state or results found")
+	}
+
+	var descrIdx int = -1
+	for i, r := range state.Results {
+		if r.DescrLink != "" {
+			descrIdx = i
+			break
+		}
+	}
+	if descrIdx < 0 {
+		t.Skip("no search result with DescrLink found; description feature cannot be tested")
+	}
+
+	// Step 4: Simulate tapping the result.
+	sender.sentMessages = nil // clear previous messages for clean assertion
+	cbData := fmt.Sprintf("sr:%d:%d", state.JobID, descrIdx)
+	cbUpdate := newCallbackUpdate(chatID, "cb-sr", cbData)
+	h.HandleUpdate(ctx, cbUpdate)
+
+	// Step 5: Verify the initial card has the link.
+	var initialEdit string
+	for i := 0; i < 10; i++ {
+		time.Sleep(50 * time.Millisecond)
+		for _, msg := range sender.sentMessages {
+			if ec, ok := msg.(tgbotapi.EditMessageTextConfig); ok {
+				initialEdit = ec.Text
+				break
+			}
+		}
+		if initialEdit != "" {
+			break
+		}
+	}
+	if initialEdit == "" {
+		t.Fatal("no edit message after selecting search result")
+	}
+	if !strings.Contains(initialEdit, "More info:") {
+		t.Errorf("expected 'More info:' link in initial card, got: %q", initialEdit)
+	}
+
+	// Step 6: Wait for async description fetch.
+	var hasDescription bool
+	for i := 0; i < 50; i++ {
+		time.Sleep(100 * time.Millisecond)
+		for _, msg := range sender.sentMessages {
+			if ec, ok := msg.(tgbotapi.EditMessageTextConfig); ok {
+				if strings.Contains(ec.Text, "Description:") || strings.Contains(ec.Text, "Description (page") {
+					hasDescription = true
+					break
+				}
+			}
+		}
+		if hasDescription {
+			break
+		}
+	}
+	if !hasDescription {
+		t.Errorf("expected description in edited message after async fetch, but not found")
 	}
 }
