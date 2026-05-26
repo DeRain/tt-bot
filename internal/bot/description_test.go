@@ -172,3 +172,43 @@ func TestDescriptionFetcher_HTMLEntitiesDecoded(t *testing.T) {
 		t.Errorf("expected decoded ampersand, got: %q", desc)
 	}
 }
+
+func TestDescriptionFetcher_Redirect(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/redirect" {
+			http.Redirect(w, r, "/target", http.StatusMovedPermanently)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(`<html><meta name="description" content="after redirect"></html>`))
+	}))
+	defer server.Close()
+
+	f := newDescriptionFetcher()
+	desc := f.fetch(context.Background(), server.URL+"/redirect")
+
+	if !strings.Contains(desc, "after redirect") {
+		t.Errorf("expected description after redirect, got: %q", desc)
+	}
+}
+
+func TestDescriptionFetcher_MetaTakesPriorityOverOG(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(`<html><head>
+<meta name="description" content="meta desc">
+<meta property="og:description" content="og desc">
+</head></html>`))
+	}))
+	defer server.Close()
+
+	f := newDescriptionFetcher()
+	desc := f.fetch(context.Background(), server.URL)
+
+	if !strings.Contains(desc, "meta desc") {
+		t.Errorf("expected meta description takes priority, got: %q", desc)
+	}
+	if strings.Contains(desc, "og desc") {
+		t.Errorf("expected og description to not appear when meta is present, got: %q", desc)
+	}
+}
