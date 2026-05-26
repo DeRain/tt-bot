@@ -125,4 +125,8 @@ func TestIntegration_DescriptionFetcher_LargeResponse(t *testing.T) {
 	if !strings.Contains(desc, "short") {
 		t.Errorf("expected meta description from large response, got: %q", desc)
 	}
+	// Description should NOT be truncated — pagination handles long text.
+	if strings.HasSuffix(desc, "...") {
+		t.Errorf("description should not be truncated; pagination handles long text. got: %q", desc)
+	}
 }

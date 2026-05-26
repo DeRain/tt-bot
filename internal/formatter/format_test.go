@@ -1333,7 +1333,7 @@ func TestFormatSearchConfirm(t *testing.T) {
 		FileSize:  2 * 1024 * 1024 * 1024,
 		NbSeeders: 50,
 	}
-	msg := formatter.FormatSearchConfirm(result, "")
+	msg := formatter.FormatSearchConfirm(result, "", 0, 0)
 
 	if !strings.Contains(msg, "Ubuntu 24.04") {
 		t.Errorf("expected torrent name, got: %q", msg)
@@ -1356,7 +1356,7 @@ func TestFormatSearchConfirm_WithDescription(t *testing.T) {
 		NbSeeders:  50,
 		NbLeechers: 5,
 	}
-	msg := formatter.FormatSearchConfirm(result, "A reliable Linux distribution")
+	msg := formatter.FormatSearchConfirm(result, "A reliable Linux distribution", 1, 1)
 
 	if !strings.Contains(msg, "Description:") {
 		t.Errorf("expected Description: label, got: %q", msg)
@@ -1376,7 +1376,7 @@ func TestFormatSearchConfirm_NoDescription(t *testing.T) {
 		NbSeeders:  50,
 		NbLeechers: 5,
 	}
-	msg := formatter.FormatSearchConfirm(result, "")
+	msg := formatter.FormatSearchConfirm(result, "", 0, 0)
 
 	if strings.Contains(msg, "Description:") {
 		t.Errorf("expected no Description when empty, got: %q", msg)
@@ -1388,8 +1388,8 @@ func TestFormatSearchConfirm_NoDescription(t *testing.T) {
 }
 
 func TestFormatSearchConfirm_DescriptionTruncated(t *testing.T) {
-	// name=4000 + long desc → triggers truncation.
-	longName := strings.Repeat("x", 4000)
+	// With pagination: long description shows page 1 of N, not truncated with "...".
+	longName := strings.Repeat("x", 3990)
 	longDesc := strings.Repeat("y", 300)
 	result := qbt.SearchResult{
 		FileName:   longName,
@@ -1397,35 +1397,33 @@ func TestFormatSearchConfirm_DescriptionTruncated(t *testing.T) {
 		NbSeeders:  1,
 		NbLeechers: 1,
 	}
-	msg := formatter.FormatSearchConfirm(result, longDesc)
+	msg := formatter.FormatSearchConfirm(result, longDesc, 1, 2)
 
 	if len(msg) > formatter.MaxMessageLength {
 		t.Errorf("message exceeds %d chars: got %d", formatter.MaxMessageLength, len(msg))
 	}
-	if !strings.Contains(msg, "Description:") {
-		t.Errorf("expected Description: label, got: %q", msg)
-	}
-	if strings.Contains(msg, longDesc) {
-		t.Errorf("expected description to be truncated, but full text present: %q", msg)
+	if !strings.Contains(msg, "Description (page 1/2):") {
+		t.Errorf("expected paginated Description label, got: %q", msg)
 	}
 }
 
 func TestFormatSearchConfirm_DescriptionFitsExactly(t *testing.T) {
-	// Total is exactly 4095, right at the > vs >= boundary.
-	// msg overhead=55, desc overhead="\n\nDescription:\n"=15+"..."=3, total overhead=73.
-	// name=3984 + desc=38 → msg(4039) + descSection(15+38=53) = 4092
-	longName := strings.Repeat("x", 3984)
+	// Short description on a single page — shows full text with "Description:" label.
+	shortName := strings.Repeat("x", 10)
 	exactDesc := strings.Repeat("y", 38)
 	result := qbt.SearchResult{
-		FileName:   longName,
+		FileName:   shortName,
 		FileSize:   1024,
 		NbSeeders:  1,
 		NbLeechers: 1,
 	}
-	msg := formatter.FormatSearchConfirm(result, exactDesc)
+	msg := formatter.FormatSearchConfirm(result, exactDesc, 1, 1)
 
 	if !strings.Contains(msg, exactDesc) {
-		t.Errorf("expected full description when message fits exactly; got len=%d", len(msg))
+		t.Errorf("expected full description for single page; got len=%d", len(msg))
+	}
+	if !strings.Contains(msg, "Description:") {
+		t.Errorf("expected Description: label, got: %q", msg)
 	}
 	if len(msg) > formatter.MaxMessageLength {
 		t.Errorf("message exceeds limit: %d chars", len(msg))
@@ -1450,7 +1448,7 @@ func TestFormatSearchConfirm_DescriptionAt4096(t *testing.T) {
 		NbSeeders:  1,
 		NbLeechers: 1,
 	}
-	msg := formatter.FormatSearchConfirm(result, shortDesc)
+	msg := formatter.FormatSearchConfirm(result, shortDesc, 1, 1)
 
 	if len(msg) > formatter.MaxMessageLength {
 		t.Errorf("message exceeds limit: %d chars", len(msg))
@@ -1474,7 +1472,7 @@ func TestFormatSearchConfirm_DescriptionAvailZero(t *testing.T) {
 		NbSeeders:  1,
 		NbLeechers: 1,
 	}
-	msg := formatter.FormatSearchConfirm(result, "tiny")
+	msg := formatter.FormatSearchConfirm(result, "tiny", 1, 1)
 
 	if len(msg) > formatter.MaxMessageLength {
 		t.Errorf("message exceeds limit: %d chars", len(msg))
@@ -1493,7 +1491,7 @@ func TestFormatSearchConfirm_DescriptionAvailNegative(t *testing.T) {
 		NbSeeders:  1,
 		NbLeechers: 1,
 	}
-	msg := formatter.FormatSearchConfirm(result, "tiny")
+	msg := formatter.FormatSearchConfirm(result, "tiny", 1, 1)
 
 	if len(msg) > formatter.MaxMessageLength {
 		t.Errorf("message exceeds limit: %d chars", len(msg))
@@ -1513,7 +1511,7 @@ func TestFormatSearchConfirm_DescriptionUTF8Truncated(t *testing.T) {
 		NbSeeders:  1,
 		NbLeechers: 1,
 	}
-	msg := formatter.FormatSearchConfirm(result, strings.Repeat("é", 20))
+	msg := formatter.FormatSearchConfirm(result, strings.Repeat("é", 20), 1, 1)
 
 	if len(msg) > formatter.MaxMessageLength {
 		t.Errorf("message exceeds limit: %d chars", len(msg))
@@ -1534,7 +1532,7 @@ func TestFormatSearchConfirm_LinkAndDescription(t *testing.T) {
 		NbLeechers: 5,
 		DescrLink:  "https://example.com/torrent/12345",
 	}
-	msg := formatter.FormatSearchConfirm(result, "A reliable Linux distribution for desktop and server use.")
+	msg := formatter.FormatSearchConfirm(result, "A reliable Linux distribution for desktop and server use.", 1, 1)
 
 	if !strings.Contains(msg, "More info:") {
 		t.Errorf("expected More info: link line, got: %q", msg)

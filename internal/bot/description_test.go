@@ -136,8 +136,8 @@ func TestDescriptionFetcher_HTMLTagsStripped(t *testing.T) {
 	}
 }
 
-func TestDescriptionFetcher_LongDescriptionTruncated(t *testing.T) {
-	longText := strings.Repeat("x", maxDescriptionChars+100)
+func TestDescriptionFetcher_LongDescriptionPreserved(t *testing.T) {
+	longText := strings.Repeat("x", 5000)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		w.Write([]byte(`<html><meta name="description" content="` + longText + `"></html>`))
@@ -147,11 +147,11 @@ func TestDescriptionFetcher_LongDescriptionTruncated(t *testing.T) {
 	f := newDescriptionFetcher()
 	desc := f.fetch(context.Background(), server.URL)
 
-	if len(desc) > maxDescriptionChars+10 { // +10 for "..."
-		t.Errorf("expected description truncated, got %d chars", len(desc))
+	if !strings.Contains(desc, longText) {
+		t.Errorf("expected full description preserved (pagination handles long text), got %d chars", len(desc))
 	}
-	if !strings.HasSuffix(desc, "...") {
-		t.Errorf("expected description to end with ..., got: %q", desc)
+	if strings.HasSuffix(desc, "...") {
+		t.Errorf("expected no truncation suffix, got: %q", desc)
 	}
 }
 

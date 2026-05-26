@@ -62,6 +62,10 @@ type SearchState struct {
 	SortField string
 	SortAsc   bool
 	CreatedAt time.Time
+
+	// Description fields for the currently selected search result.
+	DescriptionText  string // full description text, empty if not fetched
+	DescriptionPages int    // total pages for the description (0 if not paginated)
 }
 
 type SearchPrompt struct {

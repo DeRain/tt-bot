@@ -9,13 +9,11 @@ import (
 	"strings"
 	"time"
 	"unicode"
-	"unicode/utf8"
 )
 
 const (
 	descriptionFetchTimeout = 5 * time.Second
 	descriptionMaxBytes     = 256 * 1024 // 256KB max response
-	maxDescriptionChars     = 2000       // keep description under ~half the Telegram limit
 )
 
 var (
@@ -112,10 +110,6 @@ func cleanDescription(desc string) string {
 	desc = strings.TrimSpace(desc)
 	if desc == "" {
 		return ""
-	}
-	if utf8.RuneCountInString(desc) > maxDescriptionChars {
-		runes := []rune(desc)
-		desc = string(runes[:maxDescriptionChars]) + "..."
 	}
 	return desc
 }

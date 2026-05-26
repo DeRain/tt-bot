@@ -610,16 +610,97 @@ func SearchPaginationKeyboard(jobID, currentPage, totalPages int) Keyboard {
 	return rows
 }
 
+// FormatSearchConfirmBase returns the base message (without description) for computing page sizes.
+//
+//nolint:gocritic // result is passed by value intentionally
+func FormatSearchConfirmBase(result qbt.SearchResult) string {
+	msg := buildBaseMessage(result)
+	return appendMoreInfoLink(msg, result.DescrLink)
+}
+
 // FormatSearchConfirm builds a confirmation message for a selected search result.
-// Description is optional; pass empty string to omit the description section.
+// If description and totalPages are non-zero, show "Description (page N/M):\n" with paginated text.
 // When result.DescrLink is non-empty, a "More info:" link line is always included.
 //
 //nolint:gocritic // result is passed by value intentionally; changing to pointer would require interface changes
-func FormatSearchConfirm(result qbt.SearchResult, description string) string {
+func FormatSearchConfirm(result qbt.SearchResult, description string, page, totalPages int) string {
 	msg := buildBaseMessage(result)
 	msg = appendMoreInfoLink(msg, result.DescrLink)
-	msg = appendDescription(msg, description)
+	msg = appendDescriptionPaginated(msg, description, page, totalPages)
 	return msg
+}
+
+// DescriptionPageSize returns the max chars available for description text on one page.
+func DescriptionPageSize(baseMsg, descrLink string) int {
+	msg := baseMsg
+	if descrLink != "" {
+		msg += "\n\nMore info: " + descrLink
+	}
+	return MaxMessageLength - 1 - len(msg) - 32 // margin for "Description:\n" or "Description (page N/M):\n"
+}
+
+// SplitDescription splits text into pages that fit within maxPerPage bytes.
+// Truncation is UTF-8 safe.
+func SplitDescription(text string, maxPerPage int) []string {
+	if maxPerPage <= 0 || text == "" {
+		return nil
+	}
+	var pages []string
+	remaining := text
+	for remaining != "" {
+		end := maxPerPage
+		if end > len(remaining) {
+			end = len(remaining)
+		}
+		page := remaining[:end]
+		for !utf8.Valid([]byte(page)) && page != "" {
+			page = page[:len(page)-1]
+		}
+		pages = append(pages, page)
+		remaining = remaining[len(page):]
+	}
+	return pages
+}
+
+func appendDescriptionPaginated(msg, description string, page, totalPages int) string {
+	if description == "" || totalPages <= 0 || page <= 0 || page > totalPages {
+		return msg
+	}
+
+	pageSize := DescriptionPageSize(msg, "")
+	if pageSize < 16 { // need at least room for "Description:\n" + 1 char
+		return msg
+	}
+
+	// Compute page text: slice the full description for the current page.
+	pageText := descriptionPage(description, page, pageSize)
+	if pageText == "" {
+		return msg
+	}
+
+	var label string
+	if totalPages == 1 {
+		label = "\n\nDescription:\n"
+	} else {
+		label = fmt.Sprintf("\n\nDescription (page %d/%d):\n", page, totalPages)
+	}
+	return msg + label + pageText
+}
+
+func descriptionPage(text string, page, pageSize int) string {
+	offset := (page - 1) * pageSize
+	if offset >= len(text) {
+		return ""
+	}
+	end := offset + pageSize
+	if end > len(text) {
+		end = len(text)
+	}
+	result := text[offset:end]
+	for !utf8.Valid([]byte(result)) && result != "" {
+		result = result[:len(result)-1]
+	}
+	return result
 }
 
 //nolint:gocritic // result is passed by value intentionally; matching FormatSearchConfirm convention
@@ -655,28 +736,6 @@ func appendMoreInfoLink(msg, descrLink string) string {
 	return msg + "\n\nMore info: " + truncated + "..."
 }
 
-func appendDescription(msg, description string) string {
-	if description == "" {
-		return msg
-	}
-	descLine := "\n\nDescription:\n" + description
-	if len(msg)+len(descLine) <= MaxMessageLength-1 {
-		return msg + descLine
-	}
-	avail := MaxMessageLength - 1 - len(msg) - len("\n\nDescription:\n") - 3
-	if avail <= 0 {
-		return msg
-	}
-	truncated := description
-	if len(truncated) > avail {
-		truncated = truncated[:avail]
-		for !utf8.Valid([]byte(truncated)) {
-			truncated = truncated[:len(truncated)-1]
-		}
-	}
-	return msg + "\n\nDescription:\n" + truncated + "..."
-}
-
 // SearchCancelKeyboard builds a single-row keyboard with a Close button
 // that cancels and deletes the active search job.
 func SearchCancelKeyboard(jobID int) Keyboard {
@@ -697,6 +756,31 @@ func SearchConfirmKeyboard(jobID, resultIdx, page int) Keyboard {
 			Button{Text: "Back to results", CallbackData: fmt.Sprintf("sb:%d:%d", jobID, page)},
 		},
 	}
+}
+
+// SearchConfirmKeyboardWithDesc builds the confirmation keyboard with optional
+// description pagination buttons.
+func SearchConfirmKeyboardWithDesc(jobID, resultIdx, listPage, descPage, descTotal int) Keyboard {
+	kb := SearchConfirmKeyboard(jobID, resultIdx, listPage)
+	if descTotal > 1 {
+		btnRow := ButtonRow{}
+		if descPage > 1 {
+			btnRow = append(btnRow, Button{
+				Text:         "▲ Prev page",
+				CallbackData: fmt.Sprintf("dp:%d:%d:%d", jobID, resultIdx, descPage-1),
+			})
+		}
+		if descPage < descTotal {
+			btnRow = append(btnRow, Button{
+				Text:         "▼ Next page",
+				CallbackData: fmt.Sprintf("dp:%d:%d:%d", jobID, resultIdx, descPage+1),
+			})
+		}
+		if len(btnRow) > 0 {
+			kb = append(kb, btnRow)
+		}
+	}
+	return kb
 }
 
 // CategoryKeyboard builds an inline keyboard with one button per category.
