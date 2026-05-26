@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/home/tt-bot/internal/qbt"
 )
 
 func TestDescriptionFetcher_MetaDescription(t *testing.T) {
@@ -445,5 +447,116 @@ func TestDescriptionFetcher_InvalidURLNoHost(t *testing.T) {
 				t.Errorf("expected empty for %q, got: %q", tt.url, desc)
 			}
 		})
+	}
+}
+
+func TestFetchAndUpdateDescription_StoresDescription(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	descServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(`<html><meta name="description" content="Stored description"></html>`))
+	}))
+	defer descServer.Close()
+
+	result := qbt.SearchResult{
+		FileName:   "Test Torrent",
+		FileSize:   1024,
+		NbSeeders:  10,
+		NbLeechers: 5,
+		DescrLink:  descServer.URL,
+	}
+	state := &SearchState{
+		ChatID:    1,
+		MessageID: 100,
+		JobID:     42,
+		Results:   []qbt.SearchResult{result},
+		Total:     1,
+	}
+	h.storeSearch(1, state)
+
+	h.fetchAndUpdateDescription(1, 100, state, result)
+
+	s := h.getSearch(1)
+	if s == nil {
+		t.Fatal("search state not found after fetch")
+	}
+	if s.DescriptionText == "" {
+		t.Error("expected DescriptionText to be set")
+	}
+	if s.DescriptionPages == 0 {
+		t.Error("expected DescriptionPages > 0")
+	}
+}
+
+func TestFetchAndUpdateDescription_NoDescrLink(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	result := qbt.SearchResult{
+		FileName:   "Test Torrent",
+		FileSize:   1024,
+		NbSeeders:  10,
+		NbLeechers: 5,
+		DescrLink:  "", // empty — should return early
+	}
+	state := &SearchState{
+		ChatID:    1,
+		MessageID: 100,
+		JobID:     42,
+		Results:   []qbt.SearchResult{result},
+		Total:     1,
+	}
+	h.storeSearch(1, state)
+
+	h.fetchAndUpdateDescription(1, 100, state, result)
+
+	s := h.getSearch(1)
+	if s != nil && s.DescriptionText != "" {
+		t.Errorf("expected empty DescriptionText when no DescrLink, got %q", s.DescriptionText)
+	}
+}
+
+func TestFetchAndUpdateDescription_EmptyResult(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	descServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(`<html><body>No meta tags.</body></html>`))
+	}))
+	defer descServer.Close()
+
+	result := qbt.SearchResult{
+		FileName:   "Test",
+		FileSize:   1024,
+		NbSeeders:  10,
+		NbLeechers: 5,
+		DescrLink:  descServer.URL,
+	}
+	state := &SearchState{
+		ChatID:    1,
+		MessageID: 100,
+		JobID:     42,
+		Results:   []qbt.SearchResult{result},
+		Total:     1,
+	}
+	h.storeSearch(1, state)
+
+	h.fetchAndUpdateDescription(1, 100, state, result)
+
+	s := h.getSearch(1)
+	if s == nil {
+		t.Fatal("search state not found after fetch")
+	}
+	if !strings.Contains(s.DescriptionText, "No meta tags") {
+		t.Errorf("expected body fallback text, got: %q", s.DescriptionText)
 	}
 }

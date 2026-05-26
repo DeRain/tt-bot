@@ -2051,3 +2051,38 @@ func TestAppendMoreInfoLink_ShortMessage(t *testing.T) {
 		t.Errorf("expected full link in short message, got: %q", msg)
 	}
 }
+
+func TestAppendMoreInfoLink_UTF8Truncation(t *testing.T) {
+	// Truncation at multi-byte boundary: ensure result is valid UTF-8.
+	result := qbt.SearchResult{
+		FileName:   strings.Repeat("x", 4000),
+		FileSize:   100,
+		NbSeeders:  1,
+		NbLeechers: 0,
+		DescrLink:  "https://example.com/" + strings.Repeat("€", 50),
+	}
+	msg := formatter.FormatSearchConfirm(result, "", 0, 0)
+	if len(msg) > formatter.MaxMessageLength {
+		t.Errorf("message %d exceeds limit", len(msg))
+	}
+	if !utf8.ValidString(msg) {
+		t.Error("message contains invalid UTF-8 after truncation")
+	}
+}
+
+func TestDescriptionPage_UTF8Alignment(t *testing.T) {
+	// Description with multi-byte chars at page boundary.
+	result := qbt.SearchResult{
+		FileName:   "T",
+		FileSize:   0,
+		NbSeeders:  0,
+		NbLeechers: 0,
+	}
+	// Place multi-byte chars at position where page 2 starts.
+	prefix := strings.Repeat("a", formatter.DescriptionPageSize(formatter.FormatSearchConfirmBase(result), "")-1)
+	desc := prefix + "€" + strings.Repeat("b", 100)
+	msg := formatter.FormatSearchConfirm(result, desc, 2, 2)
+	if !utf8.ValidString(msg) {
+		t.Error("message contains invalid UTF-8 after page boundary alignment")
+	}
+}
