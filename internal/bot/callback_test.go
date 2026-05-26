@@ -1525,7 +1525,13 @@ func TestCallback_SearchSelectCallback(t *testing.T) {
 	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
 	results := []qbt.SearchResult{
-		{FileName: "Ubuntu 24.04", FileSize: 1024, NbSeeders: 10, FileURL: "magnet:?xt=urn:btih:abc"},
+		{
+			FileName:  "Ubuntu 24.04",
+			FileSize:  1024,
+			NbSeeders: 10,
+			FileURL:   "magnet:?xt=urn:btih:abc",
+			DescrLink: "https://example.com/torrent/12345",
+		},
 	}
 	h.storeSearch(1, &SearchState{
 		ChatID:    1,
@@ -1540,6 +1546,10 @@ func TestCallback_SearchSelectCallback(t *testing.T) {
 
 	if !sender.hasEditText("Add this torrent?") {
 		t.Fatalf("expected confirm text, got edits: %v", sender.editTexts())
+	}
+	// Description is fetched async; initial card has no description.
+	if sender.hasEditText("Description:") {
+		t.Fatalf("expected no Description in initial card, got edits: %v", sender.editTexts())
 	}
 }
 

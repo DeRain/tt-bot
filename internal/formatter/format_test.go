@@ -1333,7 +1333,7 @@ func TestFormatSearchConfirm(t *testing.T) {
 		FileSize:  2 * 1024 * 1024 * 1024,
 		NbSeeders: 50,
 	}
-	msg := formatter.FormatSearchConfirm(result)
+	msg := formatter.FormatSearchConfirm(result, "")
 
 	if !strings.Contains(msg, "Ubuntu 24.04") {
 		t.Errorf("expected torrent name, got: %q", msg)
@@ -1343,6 +1343,186 @@ func TestFormatSearchConfirm(t *testing.T) {
 	}
 	if !strings.Contains(msg, "50") {
 		t.Errorf("expected seeders, got: %q", msg)
+	}
+	if strings.Contains(msg, "Description:") {
+		t.Errorf("expected no Description when empty, got: %q", msg)
+	}
+}
+
+func TestFormatSearchConfirm_WithDescription(t *testing.T) {
+	result := qbt.SearchResult{
+		FileName:   "Ubuntu 24.04 ISO",
+		FileSize:   2 * 1024 * 1024 * 1024,
+		NbSeeders:  50,
+		NbLeechers: 5,
+	}
+	msg := formatter.FormatSearchConfirm(result, "A reliable Linux distribution")
+
+	if !strings.Contains(msg, "Description:") {
+		t.Errorf("expected Description: label, got: %q", msg)
+	}
+	if !strings.Contains(msg, "A reliable Linux distribution") {
+		t.Errorf("expected description text, got: %q", msg)
+	}
+	if len(msg) > formatter.MaxMessageLength {
+		t.Errorf("message exceeds %d chars: %d", formatter.MaxMessageLength, len(msg))
+	}
+}
+
+func TestFormatSearchConfirm_NoDescription(t *testing.T) {
+	result := qbt.SearchResult{
+		FileName:   "Ubuntu 24.04 ISO",
+		FileSize:   2 * 1024 * 1024 * 1024,
+		NbSeeders:  50,
+		NbLeechers: 5,
+	}
+	msg := formatter.FormatSearchConfirm(result, "")
+
+	if strings.Contains(msg, "Description:") {
+		t.Errorf("expected no Description when empty, got: %q", msg)
+	}
+	// Original content preserved.
+	if !strings.Contains(msg, "Seeders:") {
+		t.Errorf("expected original content (Seeders:) preserved, got: %q", msg)
+	}
+}
+
+func TestFormatSearchConfirm_DescriptionTruncated(t *testing.T) {
+	// name=4000 + long desc → triggers truncation.
+	longName := strings.Repeat("x", 4000)
+	longDesc := strings.Repeat("y", 300)
+	result := qbt.SearchResult{
+		FileName:   longName,
+		FileSize:   1024,
+		NbSeeders:  1,
+		NbLeechers: 1,
+	}
+	msg := formatter.FormatSearchConfirm(result, longDesc)
+
+	if len(msg) > formatter.MaxMessageLength {
+		t.Errorf("message exceeds %d chars: got %d", formatter.MaxMessageLength, len(msg))
+	}
+	if !strings.Contains(msg, "Description:") {
+		t.Errorf("expected Description: label, got: %q", msg)
+	}
+	if strings.Contains(msg, longDesc) {
+		t.Errorf("expected description to be truncated, but full text present: %q", msg)
+	}
+}
+
+func TestFormatSearchConfirm_DescriptionFitsExactly(t *testing.T) {
+	// Total is exactly 4095, right at the > vs >= boundary.
+	// msg overhead=55, desc overhead="\n\nDescription:\n"=15+"..."=3, total overhead=73.
+	// name=3984 + desc=38 → msg(4039) + descSection(15+38=53) = 4092
+	longName := strings.Repeat("x", 3984)
+	exactDesc := strings.Repeat("y", 38)
+	result := qbt.SearchResult{
+		FileName:   longName,
+		FileSize:   1024,
+		NbSeeders:  1,
+		NbLeechers: 1,
+	}
+	msg := formatter.FormatSearchConfirm(result, exactDesc)
+
+	if !strings.Contains(msg, exactDesc) {
+		t.Errorf("expected full description when message fits exactly; got len=%d", len(msg))
+	}
+	if len(msg) > formatter.MaxMessageLength {
+		t.Errorf("message exceeds limit: %d chars", len(msg))
+	}
+	if !strings.Contains(msg, "Seeders:") {
+		t.Errorf("expected original content (Seeders:) preserved, got: %q", msg)
+	}
+}
+
+func TestFormatSearchConfirm_DescriptionAt4096(t *testing.T) {
+	// Total is exactly 4096: over MaxMessageLength-1, triggers truncation.
+	// name=3985 + desc=38 → msg(4040) + descSection(15+38=53) = 4093
+	// With larger desc: name=3985 + desc=39 → msg(4040) + descSection(54) = 4094
+	// name=3986 + desc=38 → msg(4041) + descSection(53) = 4094
+	// Need total > 4095: name=3987 + desc=38 → msg(4042)+53=4095 → not triggered
+	// name=3987 + desc=39 → msg(4042)+54=4096 → triggered
+	longName := strings.Repeat("x", 3987)
+	shortDesc := strings.Repeat("y", 39)
+	result := qbt.SearchResult{
+		FileName:   longName,
+		FileSize:   1024,
+		NbSeeders:  1,
+		NbLeechers: 1,
+	}
+	msg := formatter.FormatSearchConfirm(result, shortDesc)
+
+	if len(msg) > formatter.MaxMessageLength {
+		t.Errorf("message exceeds limit: %d chars", len(msg))
+	}
+	if strings.Contains(msg, shortDesc) {
+		t.Errorf("expected description to be truncated at 4096, but full text present")
+	}
+	if !strings.Contains(msg, "Description:") {
+		t.Errorf("expected Description: label even when truncated, got: %q", msg)
+	}
+}
+
+func TestFormatSearchConfirm_DescriptionAvailZero(t *testing.T) {
+	// avail = 0: room for label but zero room for description text.
+	// msg overhead=55, desc overhead=15+3=18, avail=4095-55-nameLen-18=4022-nameLen.
+	// For avail=0: nameLen=4022, any descLen>0 triggers outer, avail=0.
+	longName := strings.Repeat("x", 4022)
+	result := qbt.SearchResult{
+		FileName:   longName,
+		FileSize:   1024,
+		NbSeeders:  1,
+		NbLeechers: 1,
+	}
+	msg := formatter.FormatSearchConfirm(result, "tiny")
+
+	if len(msg) > formatter.MaxMessageLength {
+		t.Errorf("message exceeds limit: %d chars", len(msg))
+	}
+	if strings.Contains(msg, "Description:") {
+		t.Errorf("expected no Description when avail=0, got: %q", msg)
+	}
+}
+
+func TestFormatSearchConfirm_DescriptionAvailNegative(t *testing.T) {
+	// avail < 0: no room at all, description omitted.
+	longName := strings.Repeat("x", 4023)
+	result := qbt.SearchResult{
+		FileName:   longName,
+		FileSize:   1024,
+		NbSeeders:  1,
+		NbLeechers: 1,
+	}
+	msg := formatter.FormatSearchConfirm(result, "tiny")
+
+	if len(msg) > formatter.MaxMessageLength {
+		t.Errorf("message exceeds limit: %d chars", len(msg))
+	}
+	if strings.Contains(msg, "Description:") {
+		t.Errorf("expected no Description when avail negative, got: %q", msg)
+	}
+}
+
+func TestFormatSearchConfirm_DescriptionUTF8Truncated(t *testing.T) {
+	// UTF-8 safe truncation: multi-byte characters not split mid-sequence.
+	// name=3987 + 20 é's (40 bytes) → msg(4042) + descSection(15+40=55) = 4097, avail=35.
+	longName := strings.Repeat("x", 3987)
+	result := qbt.SearchResult{
+		FileName:   longName,
+		FileSize:   1024,
+		NbSeeders:  1,
+		NbLeechers: 1,
+	}
+	msg := formatter.FormatSearchConfirm(result, strings.Repeat("é", 20))
+
+	if len(msg) > formatter.MaxMessageLength {
+		t.Errorf("message exceeds limit: %d chars", len(msg))
+	}
+	if !utf8.ValidString(msg) {
+		t.Errorf("message contains invalid UTF-8 after truncation")
+	}
+	if !strings.Contains(msg, "Description:") {
+		t.Errorf("expected Description: label, got: %q", msg)
 	}
 }
 

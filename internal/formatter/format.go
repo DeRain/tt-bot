@@ -611,16 +611,36 @@ func SearchPaginationKeyboard(jobID, currentPage, totalPages int) Keyboard {
 }
 
 // FormatSearchConfirm builds a confirmation message for a selected search result.
+// Description is optional; pass empty string to omit the description section.
 //
 //nolint:gocritic // result is passed by value intentionally; changing to pointer would require interface changes
-func FormatSearchConfirm(result qbt.SearchResult) string {
-	return fmt.Sprintf(
+func FormatSearchConfirm(result qbt.SearchResult, description string) string {
+	msg := fmt.Sprintf(
 		"Add this torrent?\n\n%s\nSize: %s\nSeeders: %d\nLeechers: %d",
 		result.FileName,
 		FormatSize(result.FileSize),
 		result.NbSeeders,
 		result.NbLeechers,
 	)
+	if description == "" {
+		return msg
+	}
+	descLine := "\n\nDescription:\n" + description
+	if len(msg)+len(descLine) <= MaxMessageLength-1 {
+		return msg + descLine
+	}
+	avail := MaxMessageLength - 1 - len(msg) - len("\n\nDescription:\n") - 3
+	if avail <= 0 {
+		return msg
+	}
+	truncated := description
+	if len(truncated) > avail {
+		truncated = truncated[:avail]
+		for !utf8.Valid([]byte(truncated)) {
+			truncated = truncated[:len(truncated)-1]
+		}
+	}
+	return msg + "\n\nDescription:\n" + truncated + "..."
 }
 
 // SearchCancelKeyboard builds a single-row keyboard with a Close button

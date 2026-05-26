@@ -1024,12 +1024,50 @@ func (h *Handler) handleSearchSelectCallback(ctx context.Context, cq *tgbotapi.C
 	}
 
 	result := state.Results[idx]
-	text := formatter.FormatSearchConfirm(result)
+	text := formatter.FormatSearchConfirm(result, "")
 	page := idx/formatter.SearchResultsPerPage + 1
 	kb := toTGKeyboard(formatter.SearchConfirmKeyboard(jobID, idx, page))
 
 	h.answerCallback(cq.ID, "")
 	_ = h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &kb)
+
+	// Async: fetch description text if DescrLink is available.
+	// Use a detached context for the async fetch — the callback context may
+	// be canceled before the HTTP request completes.
+	if result.DescrLink != "" {
+		//nolint:gosec // detached context is intentional; callback ctx may be canceled early
+		go h.fetchAndUpdateDescription(cq.Message.Chat.ID, cq.Message.MessageID, state, result.DescrLink, text)
+	}
+}
+
+func (h *Handler) fetchAndUpdateDescription(chatID int64, messageID int, state *SearchState, descrLink, currentText string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	fetcher := newDescriptionFetcher()
+	desc := fetcher.fetch(ctx, descrLink)
+	if desc == "" {
+		return
+	}
+
+	// Re-validate search state still exists for this chat.
+	if s := h.getSearch(chatID); s == nil || s.JobID != state.JobID {
+		return
+	}
+
+	// Find the selected result to rebuild the card with description.
+	var result qbt.SearchResult
+	for _, r := range state.Results {
+		if r.DescrLink == descrLink {
+			result = r
+			break
+		}
+	}
+	updatedText := formatter.FormatSearchConfirm(result, desc)
+	if updatedText == currentText {
+		return
+	}
+	_ = h.editMessageText(chatID, messageID, updatedText, nil)
 }
 
 func (h *Handler) handleSearchPageCallback(ctx context.Context, cq *tgbotapi.CallbackQuery, data string) {
