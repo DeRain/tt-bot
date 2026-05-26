@@ -1042,12 +1042,12 @@ func (h *Handler) handleSearchSelectCallback(ctx context.Context, cq *tgbotapi.C
 	// Async: fetch description text if DescrLink is available.
 	if result.DescrLink != "" {
 		//nolint:gosec // async goroutine with Background context is intentional
-		go h.fetchAndUpdateDescription(cq.Message.Chat.ID, cq.Message.MessageID, state, result, idx, page)
+		go h.fetchAndUpdateDescription(cq.Message.Chat.ID, cq.Message.MessageID, state, result)
 	}
 }
 
 //nolint:gocritic // result is passed by value intentionally
-func (h *Handler) fetchAndUpdateDescription(chatID int64, messageID int, state *SearchState, result qbt.SearchResult, resultIdx, listPage int) {
+func (h *Handler) fetchAndUpdateDescription(chatID int64, messageID int, state *SearchState, result qbt.SearchResult) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -1059,7 +1059,7 @@ func (h *Handler) fetchAndUpdateDescription(chatID int64, messageID int, state *
 
 	// Re-validate search state and selected result index.
 	s := h.getSearch(chatID)
-	if s == nil || s.JobID != state.JobID || s.SelectedIdx != resultIdx {
+	if s == nil || s.JobID != state.JobID || s.SelectedIdx != state.SelectedIdx {
 		return
 	}
 
@@ -1074,8 +1074,9 @@ func (h *Handler) fetchAndUpdateDescription(chatID int64, messageID int, state *
 	s.DescriptionPages = totalPages
 
 	// Show page 1 with pagination keyboard if multi-page.
+	listPage := state.SelectedIdx/formatter.SearchResultsPerPage + 1
 	updatedText := formatter.FormatSearchConfirm(result, desc, 1, totalPages)
-	kb := toTGKeyboard(formatter.SearchConfirmKeyboardWithDesc(s.JobID, resultIdx, listPage, 1, totalPages))
+	kb := toTGKeyboard(formatter.SearchConfirmKeyboardWithDesc(s.JobID, state.SelectedIdx, listPage, 1, totalPages))
 	_ = h.editMessageText(chatID, messageID, updatedText, &kb)
 }
 
