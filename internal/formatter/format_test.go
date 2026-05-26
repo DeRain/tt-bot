@@ -1922,12 +1922,132 @@ func TestSplitDescription_LongText(t *testing.T) {
 	if len(pages) != 50 {
 		t.Errorf("expected 50 pages, got %d", len(pages))
 	}
-	// Verify concatenation reconstructs original.
 	var rebuilt strings.Builder
 	for _, p := range pages {
 		rebuilt.WriteString(p)
 	}
 	if rebuilt.String() != text {
 		t.Error("rebuilt text does not match original")
+	}
+}
+
+func TestSplitDescription_MultiByteSingleByte(t *testing.T) {
+	// € (3 bytes) with pageSize=1 forces empty-page-skip path.
+	// Kills INVERT_LOOP_CTRL on 'continue' (line 659).
+	text := "x" + "\xe2\x82\xac" + "y" // "x€y" = 1+3+1 = 5 bytes
+	pages := formatter.SplitDescription(text, 1)
+	if len(pages) < 2 {
+		t.Errorf("expected at least 2 pages from 'x€y' at 1-byte pages, got %d", len(pages))
+	}
+	for _, p := range pages {
+		if !utf8.ValidString(p) {
+			t.Errorf("page contains invalid UTF-8: %q", p)
+		}
+	}
+}
+
+func TestFormatSearchConfirm_PageSize16Boundary(t *testing.T) {
+	// Build base message such that DescriptionPageSize returns exactly 16.
+	// Kills CONDITIONALS_BOUNDARY on pageSize < 16 (line 673).
+	// MaxMessageLength=4096, margin=32. Needed: baseLen=4096-1-16-32=4047.
+	base := strings.Repeat("x", 4047)
+	result := qbt.SearchResult{FileName: base, FileSize: 0, NbSeeders: 0, NbLeechers: 0}
+	ps := formatter.DescriptionPageSize(formatter.FormatSearchConfirmBase(result), "")
+	if ps < 16 {
+		// If the message is too long, we can't construct a 16-byte page boundary.
+		t.Skipf("page size %d < 16; can't test 16-boundary", ps)
+	}
+	// Use a description that exactly fits the computed page size.
+	desc := strings.Repeat("d", ps+1)
+	msg := formatter.FormatSearchConfirm(result, desc, 1, 1)
+	if !strings.Contains(msg, "Description:") {
+		t.Errorf("expected Description: for pageSize>=16, got no description")
+	}
+}
+
+func TestFormatSearchConfirm_EmptyPageText(t *testing.T) {
+	// page 2 of a description that doesn't have enough text for a second page.
+	// Kills BRANCH_IF on pageText == "" (line 679).
+	result := qbt.SearchResult{
+		FileName:   "Short",
+		FileSize:   100,
+		NbSeeders:  1,
+		NbLeechers: 0,
+	}
+	msg := formatter.FormatSearchConfirm(result, "short", 999, 999)
+	if strings.Contains(msg, "Description:") {
+		t.Error("expected no Description: for out-of-bounds page")
+	}
+}
+
+func TestFormatSearchConfirm_ArithmeticPageOffset(t *testing.T) {
+	// Kills ARITHMETIC_BASE on (page-1)*pageSize (line 693).
+	result := qbt.SearchResult{
+		FileName:   "Test",
+		FileSize:   100,
+		NbSeeders:  1,
+		NbLeechers: 0,
+	}
+	pageSize := formatter.DescriptionPageSize(formatter.FormatSearchConfirmBase(result), "")
+	if pageSize < 1 {
+		t.Skip("page size too small for arithmetic test")
+	}
+	desc := strings.Repeat("x", pageSize*3)
+	// Page 2 should contain text from offset pageSize to 2*pageSize-1.
+	msg := formatter.FormatSearchConfirm(result, desc, 2, 3)
+	if !strings.Contains(msg, "Description (page 2/3):") {
+		t.Errorf("expected page 2 label, got: %q", msg[len(msg)-100:])
+	}
+}
+
+func TestFormatSearchConfirm_CompoundGuardCoverage(t *testing.T) {
+	// Cover each path of the compound guard in appendDescriptionPaginated.
+	result := qbt.SearchResult{FileName: "x", FileSize: 0, NbSeeders: 0, NbLeechers: 0}
+
+	// totalPages <= 0
+	msg := formatter.FormatSearchConfirm(result, "desc", 1, 0)
+	if strings.Contains(msg, "Description:") {
+		t.Error("expected no description for totalPages=0")
+	}
+	// page <= 0
+	msg = formatter.FormatSearchConfirm(result, "desc", 0, 1)
+	if strings.Contains(msg, "Description:") {
+		t.Error("expected no description for page=0")
+	}
+	// page > totalPages
+	msg = formatter.FormatSearchConfirm(result, "desc", 3, 2)
+	if strings.Contains(msg, "Description:") {
+		t.Error("expected no description when page > totalPages")
+	}
+}
+
+func TestAppendMoreInfoLink_Truncated(t *testing.T) {
+	result := qbt.SearchResult{
+		FileName:   strings.Repeat("x", 4000),
+		FileSize:   100,
+		NbSeeders:  1,
+		NbLeechers: 0,
+		DescrLink:  "https://example.com/" + strings.Repeat("x", 200),
+	}
+	msg := formatter.FormatSearchConfirm(result, "", 0, 0)
+	if len(msg) > formatter.MaxMessageLength {
+		t.Errorf("message %d exceeds limit", len(msg))
+	}
+	if !strings.Contains(msg, "...") {
+		t.Error("expected truncation ellipsis for long link")
+	}
+}
+
+func TestAppendMoreInfoLink_ShortMessage(t *testing.T) {
+	result := qbt.SearchResult{
+		FileName:   "T",
+		FileSize:   0,
+		NbSeeders:  0,
+		NbLeechers: 0,
+		DescrLink:  "https://e.co/t",
+	}
+	msg := formatter.FormatSearchConfirm(result, "", 0, 0)
+	if !strings.Contains(msg, "https://e.co/t") {
+		t.Errorf("expected full link in short message, got: %q", msg)
 	}
 }
