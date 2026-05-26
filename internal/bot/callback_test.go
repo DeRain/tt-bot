@@ -1965,3 +1965,115 @@ func TestCallback_SearchConfirmCallback_HTTPDownload_RedirectToMagnet(t *testing
 		t.Fatal("expected answerCallback for cb-sc, not found")
 	}
 }
+
+func TestCallback_DescriptionPageCallback(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	desc := strings.Repeat("x", 8000) // long enough for 2 pages
+	results := []qbt.SearchResult{
+		{FileName: "Test", FileSize: 1024, NbSeeders: 1, FileURL: "magnet:?xt=urn:btih:abc"},
+	}
+	h.storeSearch(1, &SearchState{
+		ChatID:           1,
+		MessageID:        100,
+		JobID:            42,
+		Results:          results,
+		Total:            1,
+		DescriptionText:  desc,
+		DescriptionPages: 2,
+	})
+
+	// Navigate to page 2.
+	update := newCallbackUpdate(1, "cb-dp", "dp:42:0:2")
+	h.HandleUpdate(context.Background(), update)
+
+	if !sender.hasEditText("Description (page 2/2):") {
+		t.Fatalf("expected page 2 label in edit, got edits: %v", sender.editTexts())
+	}
+}
+
+func TestCallback_DescriptionPageCallback_InvalidPage(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	results := []qbt.SearchResult{
+		{FileName: "Test", FileSize: 1024, NbSeeders: 1, FileURL: "magnet:?xt=urn:btih:abc"},
+	}
+	h.storeSearch(1, &SearchState{
+		ChatID:           1,
+		MessageID:        100,
+		JobID:            42,
+		Results:          results,
+		Total:            1,
+		DescriptionText:  "desc",
+		DescriptionPages: 1,
+	})
+
+	// Page 3 exceeds total pages.
+	update := newCallbackUpdate(1, "cb-dp", "dp:42:0:3")
+	h.HandleUpdate(context.Background(), update)
+
+	foundAnswer := false
+	for _, msg := range sender.sentMessages {
+		if cb, ok := msg.(tgbotapi.CallbackConfig); ok && cb.Text == "Invalid page." {
+			foundAnswer = true
+			break
+		}
+	}
+	if !foundAnswer {
+		t.Fatalf("expected 'Invalid page' callback answer, got: %v", sender.sentMessages)
+	}
+}
+
+func TestCallback_DescriptionPageCallback_ExpiredSearch(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	// No search stored — callback should fail gracefully.
+	update := newCallbackUpdate(1, "cb-dp", "dp:42:0:1")
+	h.HandleUpdate(context.Background(), update)
+
+	foundAnswer := false
+	for _, msg := range sender.sentMessages {
+		if cb, ok := msg.(tgbotapi.CallbackConfig); ok && cb.Text == "Search expired." {
+			foundAnswer = true
+			break
+		}
+	}
+	if !foundAnswer {
+		t.Fatalf("expected 'Search expired' callback answer, got: %v", sender.sentMessages)
+	}
+}
+
+func TestCallback_SearchSelect_WithDescrLink(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	results := []qbt.SearchResult{
+		{FileName: "Ubuntu", FileSize: 1024, NbSeeders: 10, FileURL: "magnet:?xt=urn:btih:abc",
+			DescrLink: "https://example.com/desc"},
+	}
+	h.storeSearch(1, &SearchState{
+		ChatID:    1,
+		MessageID: 100,
+		JobID:     123,
+		Results:   results,
+		Total:     1,
+	})
+
+	update := newCallbackUpdate(1, "cb-sr", "sr:123:0")
+	h.HandleUpdate(context.Background(), update)
+
+	if !sender.hasEditText("More info:") {
+		t.Fatalf("expected More info link with DescrLink, got edits: %v", sender.editTexts())
+	}
+}
