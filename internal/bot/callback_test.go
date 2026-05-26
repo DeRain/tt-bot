@@ -2030,6 +2030,74 @@ func TestCallback_DescriptionPageCallback_InvalidPage(t *testing.T) {
 	}
 }
 
+func TestCallback_DescriptionPage_ListPageArithmetic(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	desc := strings.Repeat("x", 8000)
+	results := []qbt.SearchResult{
+		{FileName: "Test", FileSize: 1024, NbSeeders: 1, FileURL: "magnet:?xt=urn:btih:abc"},
+		{FileName: "Test2", FileSize: 1024, NbSeeders: 1, FileURL: "magnet:?xt=urn:btih:def"},
+		{FileName: "Test3", FileSize: 1024, NbSeeders: 1, FileURL: "magnet:?xt=urn:btih:ghi"},
+		{FileName: "Test4", FileSize: 1024, NbSeeders: 1, FileURL: "magnet:?xt=urn:btih:jkl"},
+		{FileName: "Test5", FileSize: 1024, NbSeeders: 1, FileURL: "magnet:?xt=urn:btih:mno"},
+		{FileName: "Test6", FileSize: 1024, NbSeeders: 1, FileURL: "magnet:?xt=urn:btih:pqr"},
+	}
+	h.storeSearch(1, &SearchState{
+		ChatID:           1,
+		MessageID:        100,
+		JobID:            42,
+		Results:          results,
+		Total:            len(results),
+		DescriptionText:  desc,
+		DescriptionPages: 2,
+	})
+
+	update := newCallbackUpdate(1, "cb-dp", "dp:42:5:2")
+	h.HandleUpdate(context.Background(), update)
+
+	if !sender.hasEditText("Description (page 2/2):") {
+		t.Fatalf("expected page 2 label, got edits: %v", sender.editTexts())
+	}
+}
+
+func TestCallback_DescriptionPage_AnswerCallbackSent(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	desc := strings.Repeat("x", 8000)
+	results := []qbt.SearchResult{
+		{FileName: "Test", FileSize: 1024, NbSeeders: 1, FileURL: "magnet:?xt=urn:btih:abc"},
+	}
+	h.storeSearch(1, &SearchState{
+		ChatID:           1,
+		MessageID:        100,
+		JobID:            42,
+		Results:          results,
+		Total:            1,
+		DescriptionText:  desc,
+		DescriptionPages: 2,
+	})
+
+	update := newCallbackUpdate(1, "cb-dp", "dp:42:0:1")
+	h.HandleUpdate(context.Background(), update)
+
+	foundAnswer := false
+	for _, msg := range sender.sentMessages {
+		if cb, ok := msg.(tgbotapi.CallbackConfig); ok && cb.Text == "" {
+			foundAnswer = true
+			break
+		}
+	}
+	if !foundAnswer {
+		t.Fatalf("expected empty answerCallback after description page, got: %v", sender.sentMessages)
+	}
+}
+
 func TestCallback_DescriptionPageCallback_ExpiredSearch(t *testing.T) {
 	sender := &mockSender{}
 	qbtClient := &mockQBTClient{}
