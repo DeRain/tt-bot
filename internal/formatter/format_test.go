@@ -2120,7 +2120,6 @@ func TestSplitDescription_TrailingPartial(t *testing.T) {
 }
 
 func TestFormatSearchConfirm_PageSizeZero(t *testing.T) {
-	// Base message so long that DescriptionPageSize is 0.
 	result := qbt.SearchResult{
 		FileName:   strings.Repeat("a", formatter.MaxMessageLength),
 		FileSize:   0,
@@ -2128,8 +2127,31 @@ func TestFormatSearchConfirm_PageSizeZero(t *testing.T) {
 		NbLeechers: 0,
 	}
 	msg := formatter.FormatSearchConfirm(result, "desc", 1, 1)
-	// Description should NOT appear because pageSize is too small.
 	if strings.Contains(msg, "Description:") && len(msg) > formatter.MaxMessageLength {
 		t.Errorf("message exceeds limit with description")
+	}
+}
+
+func TestFormatSearchConfirm_Page2Content(t *testing.T) {
+	// Kills ARITHMETIC_BASE on (page-1)*pageSize (line 693).
+	result := qbt.SearchResult{
+		FileName:   "Test",
+		FileSize:   100,
+		NbSeeders:  1,
+		NbLeechers: 0,
+	}
+	ps := formatter.DescriptionPageSize(formatter.FormatSearchConfirmBase(result), "")
+	if ps < 10 {
+		t.Skipf("page size %d too small for multi-page test", ps)
+	}
+	// Create text where page 1 = all 'a's, page 2 = all 'b's.
+	desc := strings.Repeat("a", ps) + strings.Repeat("b", ps)
+	msg := formatter.FormatSearchConfirm(result, desc, 2, 2)
+	// Page 2 should contain 'b's, not 'a's.
+	if !strings.Contains(msg, "b") {
+		t.Error("expected page 2 to contain 'b' characters")
+	}
+	if strings.Contains(msg, strings.Repeat("a", ps)) {
+		t.Error("expected page 2 NOT to contain page 1 content")
 	}
 }
