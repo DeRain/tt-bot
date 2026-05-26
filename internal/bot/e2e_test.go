@@ -1627,9 +1627,6 @@ func TestE2E_SearchDescriptionFullFlow(t *testing.T) {
 	}
 }
 
-			if strings.Contains(last, "No torrents found") || strings.Contains(last, "Search timed out") {
-				t.Skipf("no search results for 'ubuntu': %q", last)
-			}
 			if strings.Contains(last, "Search:") {
 				searchMsgText = last
 				break
