@@ -1041,7 +1041,6 @@ func (h *Handler) handleSearchSelectCallback(ctx context.Context, cq *tgbotapi.C
 
 	// Async: fetch description text if DescrLink is available.
 	if result.DescrLink != "" {
-		//nolint:gosec // async goroutine with Background context is intentional
 		go h.fetchAndUpdateDescription(cq.Message.Chat.ID, cq.Message.MessageID, state, result)
 	}
 }

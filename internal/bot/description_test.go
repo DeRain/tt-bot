@@ -470,12 +470,12 @@ func TestFetchAndUpdateDescription_StoresDescription(t *testing.T) {
 		DescrLink:  descServer.URL,
 	}
 	state := &SearchState{
-		ChatID:       1,
-		MessageID:    100,
-		JobID:        42,
-		Results:      []qbt.SearchResult{result},
-		Total:        1,
-		SelectedIdx:  5, // non-zero to expose ARITHMETIC_BASE on division
+		ChatID:      1,
+		MessageID:   100,
+		JobID:       42,
+		Results:     []qbt.SearchResult{result},
+		Total:       1,
+		SelectedIdx: 5, // non-zero to expose ARITHMETIC_BASE on division
 	}
 	h.storeSearch(1, state)
 
