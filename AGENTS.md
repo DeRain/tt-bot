@@ -49,6 +49,8 @@ For local services, use `docker compose up --build` to run the bot with qBittorr
 
 **Integration tests are MANDATORY.** Always run `make test-integration` before marking any AC as PASS or any feature as complete. Unit tests with mocks cannot catch real API contract issues — endpoint renames, response format changes, and auth behavior differences are invisible to httptest-based tests. This was learned the hard way: qBittorrent v5 renamed `/pause` → `/stop` and `/resume` → `/start`, and only `make test-integration` caught the 404s.
 
+**Integration/E2E tests MUST be run via Docker (`make test-integration`), NOT locally.** The test environment spins up qBittorrent + Jackett via `docker-compose.test.yml` and runs all `//go:build integration` tests. Running `go test -tags=integration` locally will fail because there is no qBittorrent instance at `localhost:18080`. Always use the full Docker command: `make test-integration`.
+
 ## Protected Files
 
 The following files define structural contracts and must NOT be modified without explicit operator approval:
