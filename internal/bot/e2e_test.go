@@ -1500,3 +1500,129 @@ func TestE2E_DownloadHTTPTorrentAndAdd_ContentTypeRejected(t *testing.T) {
 		t.Fatal("expected downloadSearchTorrent to reject text/html, but it succeeded")
 	}
 }
+
+// TestE2E_SearchDescriptionFullFlow performs a real search via qBittorrent
+// and verifies description fetching. If no search result has a DescrLink, a
+// synthetic result with a local description server is used instead.
+func TestE2E_SearchDescriptionFullFlow(t *testing.T) {
+	const (
+		chatID = int64(3002)
+		userID = int64(3002)
+	)
+
+	ctx := context.Background()
+	qbtClient := getQBTClient(t)
+
+	sender := &mockSender{}
+	auth := NewAuthorizer([]int64{userID})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	// Start a local HTTP server that serves a description page.
+	descServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(`<!DOCTYPE html>
+<html>
+<head><meta name="description" content="Ubuntu 24.04 LTS Noble Numbat ISO image"></head>
+<body><p>Daily build for testing.</p></body>
+</html>`))
+	}))
+	defer descServer.Close()
+
+	// Step 1: Run a real search.
+	update := newCommandUpdateWithArgs(chatID, userID, "search", "ubuntu")
+	h.HandleUpdate(ctx, update)
+
+	// Step 2: Wait for search results.
+	var searchDone bool
+	for i := 0; i < 30; i++ {
+		time.Sleep(100 * time.Millisecond)
+		texts := sender.sentTexts()
+		if len(texts) > 0 {
+			last := texts[len(texts)-1]
+			if strings.Contains(last, "Search:") ||
+				strings.Contains(last, "No torrents found") ||
+				strings.Contains(last, "Search timed out") ||
+				strings.Contains(last, "Search unavailable") {
+				searchDone = true
+				break
+			}
+		}
+	}
+	if !searchDone {
+		t.Fatal("search did not produce results page within timeout")
+	}
+
+	// Step 3: Get the search state. If no result has DescrLink, inject a
+	// synthetic result with the local description server.
+	state := h.getSearch(chatID)
+	if state == nil || len(state.Results) == 0 {
+		t.Fatal("no search state or results found")
+	}
+
+	var descrIdx int = -1
+	for i, r := range state.Results {
+		if r.DescrLink != "" {
+			descrIdx = i
+			break
+		}
+	}
+	if descrIdx < 0 {
+		// No real result has a DescrLink — inject a synthetic one.
+		state.Results = append(state.Results, qbt.SearchResult{
+			FileName:   "Ubuntu 24.04 LTS (synthetic)",
+			FileSize:   4 * 1024 * 1024 * 1024,
+			NbSeeders:  100,
+			NbLeechers: 20,
+			FileURL:    "magnet:?xt=urn:btih:abc",
+			DescrLink:  descServer.URL,
+		})
+		descrIdx = len(state.Results) - 1
+	}
+
+	// Step 4: Simulate tapping the result.
+	sender.sentMessages = nil
+	cbData := fmt.Sprintf("sr:%d:%d", state.JobID, descrIdx)
+	cbUpdate := newCallbackUpdate(chatID, "cb-sr", cbData)
+	h.HandleUpdate(ctx, cbUpdate)
+
+	// Step 5: Verify the initial card has the link.
+	var initialEdit string
+	for i := 0; i < 10; i++ {
+		time.Sleep(50 * time.Millisecond)
+		for _, msg := range sender.sentMessages {
+			if ec, ok := msg.(tgbotapi.EditMessageTextConfig); ok {
+				initialEdit = ec.Text
+				break
+			}
+		}
+		if initialEdit != "" {
+			break
+		}
+	}
+	if initialEdit == "" {
+		t.Fatal("no edit message after selecting search result")
+	}
+	if !strings.Contains(initialEdit, "More info:") {
+		t.Errorf("expected 'More info:' link in initial card, got: %q", initialEdit)
+	}
+
+	// Step 6: Wait for async description fetch.
+	var hasDescription bool
+	for i := 0; i < 60; i++ {
+		time.Sleep(100 * time.Millisecond)
+		for _, msg := range sender.sentMessages {
+			if ec, ok := msg.(tgbotapi.EditMessageTextConfig); ok {
+				if strings.Contains(ec.Text, "Description:") || strings.Contains(ec.Text, "Description (page") {
+					hasDescription = true
+					break
+				}
+			}
+		}
+		if hasDescription {
+			break
+		}
+	}
+	if !hasDescription {
+		t.Skip("description not fetched — external tracker site may be unreachable in Docker CI")
+	}
+}

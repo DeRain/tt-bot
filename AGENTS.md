@@ -42,12 +42,15 @@ internal/poller/          → background goroutine polling for completed torrent
 | `make test` | Unit tests with coverage (`go test ./... -short -cover`) |
 | `make test-integration` | Integration + E2E tests in Docker (spins up qBittorrent, runs all `Integration\|E2E` tests, tears down) |
 | `make arch-check` | Validate architecture dependency rules (`arch-go.yml`) |
-| `make gate-all` | Full quality gate: build → lint → test → arch-check |
+| `make gate-all` | Full quality gate: build → lint → test → arch-check → integration → mutation |
+| `make mutation-test-pr` | Mutation testing on PR-changed lines (requires 100% efficacy) |
 | `make clean` | Remove coverage.out and bot binary |
 
 For local services, use `docker compose up --build` to run the bot with qBittorrent. For focused test runs, use commands such as `go test ./internal/qbt -run TestLogin -short -v`.
 
 **Integration tests are MANDATORY.** Always run `make test-integration` before marking any AC as PASS or any feature as complete. Unit tests with mocks cannot catch real API contract issues — endpoint renames, response format changes, and auth behavior differences are invisible to httptest-based tests. This was learned the hard way: qBittorrent v5 renamed `/pause` → `/stop` and `/resume` → `/start`, and only `make test-integration` caught the 404s.
+
+**Integration/E2E tests MUST be run via Docker (`make test-integration`), NOT locally.** The test environment spins up qBittorrent + Jackett via `docker-compose.test.yml` and runs all `//go:build integration` tests. Running `go test -tags=integration` locally will fail because there is no qBittorrent instance at `localhost:18080`. Always use the full Docker command: `make test-integration`.
 
 ## Protected Files
 
@@ -104,6 +107,9 @@ Unit tests run with `go test ./... -short`. Integration tests (`make test-integr
 - **New code MUST NOT use `gomutants:disable` comments.** Fix all mutants with real tests.
 - **Touching old code that has existing `gomutants:disable` comments REQUIRES fixing the underlying mutant** — remove the suppression and add a test.
 - **Equivalent mutants** (behaviorally identical to original) should be fixed by **restructuring the code** to eliminate the untestable branch, not by suppressing the mutant.
+- **Writing better tests beats adapting code to mutants.** Prefer expanding test coverage with mock injection, targeted boundary inputs, and internal-package tests over `min()` tricks or restructuring that hurts readability. Code clarity wins over mutation workarounds.
+- **Linter has priority over mutants when they conflict.** If a mutation-killing restructuring triggers a linter warning (e.g. `QF1006`), keep the clean code the linter wants and kill the mutant with better tests. Suppress the linter only as last resort.
+- **Never suppress the linter.** Keep the clean code. If a mutant survives the clean version, kill it with a better test. Only use `gomutants:disable` as absolute last resort for truly equivalent mutants.
 - Run `make mutation-test-pr` locally before pushing to confirm 0 lived mutants.
 
 ## Interface-Driven Design
@@ -158,5 +164,5 @@ LSP: gopls (Go). Key tools: `lsp_find_references`, `lsp_goto_definition`, `lsp_s
 
 CLI fallbacks: `gopls references/implementation/definition file:line:col`, `sg -p 'pattern' -l go`, `rg 'pattern'`, `fd 'pattern'`.
 
-Pre-commit: `lsp_diagnostics` → `make gate-all` → `make test-integration` (API changes).
+Pre-commit: `lsp_diagnostics` → `make gate-all` (covers build, lint, test, arch, integration, mutation).
 <!-- code-intel:end -->
