@@ -700,7 +700,7 @@ func descriptionPage(text string, page, pageSize int) string {
 	start := (page - 1) * pageSize
 	// Align to next rune start if we landed in the middle of a multi-byte char.
 	for {
-		if !(start < len(text)) || utf8.RuneStart(text[start]) {
+		if min(start, len(text)) == len(text) || utf8.RuneStart(text[start]) {
 			break
 		}
 		start++
@@ -712,7 +712,7 @@ func descriptionPage(text string, page, pageSize int) string {
 	end := min(start+pageSize, len(text))
 	result := text[start:end]
 	// Trim trailing incomplete rune.
-	for !utf8.Valid([]byte(result)) && len(result) > 0 {
+	for !utf8.Valid([]byte(result)) {
 		result = result[:len(result)-1]
 	}
 	return result
