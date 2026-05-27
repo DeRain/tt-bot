@@ -479,7 +479,7 @@ func TestFetchAndUpdateDescription_StoresDescription(t *testing.T) {
 	}
 	h.storeSearch(1, state)
 
-	h.doFetchAndUpdateDescription(1, 100, state, result)
+	h.fetchAndUpdateDescription(1, 100, state, result)
 
 	s := h.getSearch(1)
 	if s == nil {
@@ -519,7 +519,7 @@ func TestFetchAndUpdateDescription_NoDescrLink(t *testing.T) {
 	}
 	h.storeSearch(1, state)
 
-	h.doFetchAndUpdateDescription(1, 100, state, result)
+	h.fetchAndUpdateDescription(1, 100, state, result)
 
 	s := h.getSearch(1)
 	if s != nil && s.DescriptionText != "" {
@@ -555,7 +555,7 @@ func TestFetchAndUpdateDescription_EmptyResult(t *testing.T) {
 	}
 	h.storeSearch(1, state)
 
-	h.doFetchAndUpdateDescription(1, 100, state, result)
+	h.fetchAndUpdateDescription(1, 100, state, result)
 
 	s := h.getSearch(1)
 	if s == nil {
@@ -563,5 +563,75 @@ func TestFetchAndUpdateDescription_EmptyResult(t *testing.T) {
 	}
 	if !strings.Contains(s.DescriptionText, "No meta tags") {
 		t.Errorf("expected body fallback text, got: %q", s.DescriptionText)
+	}
+}
+
+func TestFetchAndUpdateDescription_NoSearchStored(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	result := qbt.SearchResult{
+		FileName:   "Test",
+		FileSize:   1024,
+		NbSeeders:  1,
+		NbLeechers: 1,
+		DescrLink:  "",
+	}
+	state := &SearchState{
+		ChatID:    1,
+		MessageID: 100,
+		JobID:     42,
+		Results:   []qbt.SearchResult{result},
+		Total:     1,
+	}
+
+	h.fetchAndUpdateDescription(1, 100, state, result)
+
+	s := h.getSearch(1)
+	if s != nil && s.DescriptionText != "" {
+		t.Errorf("expected no description when no search stored, got %q", s.DescriptionText)
+	}
+}
+
+func TestFetchAndUpdateDescription_JobIDMismatch(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	result := qbt.SearchResult{FileName: "x", FileSize: 1, NbSeeders: 0, DescrLink: ""}
+	state := &SearchState{ChatID: 1, MessageID: 100, JobID: 99, Results: []qbt.SearchResult{result}, Total: 1}
+	h.storeSearch(1, &SearchState{ChatID: 1, MessageID: 100, JobID: 42, Results: []qbt.SearchResult{result}, Total: 1})
+	h.fetchAndUpdateDescription(1, 100, state, result)
+}
+
+func TestFetchAndUpdateDescription_SelectedIdxMismatch(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	result := qbt.SearchResult{FileName: "x", FileSize: 1, NbSeeders: 0, DescrLink: ""}
+	state := &SearchState{ChatID: 1, MessageID: 100, JobID: 42, SelectedIdx: 7, Results: []qbt.SearchResult{result}, Total: 1}
+	h.storeSearch(1, &SearchState{ChatID: 1, MessageID: 100, JobID: 42, SelectedIdx: 3, Results: []qbt.SearchResult{result}, Total: 1})
+	h.fetchAndUpdateDescription(1, 100, state, result)
+}
+
+func TestFetchAndUpdateDescription_ZeroPages(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	result := qbt.SearchResult{FileName: "x", FileSize: 1, NbSeeders: 0, DescrLink: ""}
+	state := &SearchState{ChatID: 1, MessageID: 100, JobID: 42, SelectedIdx: 0, Results: []qbt.SearchResult{result}, Total: 1}
+	h.storeSearch(1, state)
+	h.fetchAndUpdateDescription(1, 100, state, result)
+
+	s := h.getSearch(1)
+	if s != nil && s.DescriptionPages != 0 {
+		t.Errorf("expected 0 pages for empty description, got %d", s.DescriptionPages)
 	}
 }

@@ -2155,3 +2155,60 @@ func TestFormatSearchConfirm_Page2Content(t *testing.T) {
 		t.Error("expected page 2 NOT to contain page 1 content")
 	}
 }
+
+func TestFormatSearchConfirm_MoreInfoLink_UTF8Truncated(t *testing.T) {
+	longName := strings.Repeat("x", 3994)
+	descrLink := "https://example.com/" + strings.Repeat("世", 6)
+
+	result := qbt.SearchResult{
+		FileName:   longName,
+		FileSize:   1024,
+		NbSeeders:  1,
+		NbLeechers: 1,
+		DescrLink:  descrLink,
+	}
+	msg := formatter.FormatSearchConfirm(result, "", 0, 0)
+	if !strings.Contains(msg, "More info:") {
+		t.Error("expected More info link in truncated message")
+	}
+	if len(msg) > formatter.MaxMessageLength {
+		t.Errorf("message exceeds limit: %d chars", len(msg))
+	}
+	if !utf8.ValidString(msg) {
+		t.Error("expected valid UTF-8 after truncation")
+	}
+}
+
+func TestFormatSearchConfirm_MoreInfoLink_EndAtZero(t *testing.T) {
+	// Base message fills the entire budget, leaving no room for the link plus ellipsis.
+	longName := strings.Repeat("x", 4030)
+	result := qbt.SearchResult{
+		FileName:   longName,
+		FileSize:   0,
+		NbSeeders:  0,
+		NbLeechers: 0,
+		DescrLink:  "https://s.com",
+	}
+	msg := formatter.FormatSearchConfirm(result, "", 0, 0)
+	if len(msg) > formatter.MaxMessageLength {
+		t.Errorf("message exceeds limit: %d chars", len(msg))
+	}
+	if strings.Contains(msg, "...") {
+		t.Error("expected no ellipsis when no room for truncated link")
+	}
+}
+
+func TestListPageFromIndex(t *testing.T) {
+	if got := formatter.ListPageFromIndex(0); got != 1 {
+		t.Errorf("idx 0: expected page 1, got %d", got)
+	}
+	if got := formatter.ListPageFromIndex(7); got != 1 {
+		t.Errorf("idx 7: expected page 1, got %d", got)
+	}
+	if got := formatter.ListPageFromIndex(8); got != 2 {
+		t.Errorf("idx 8: expected page 2, got %d", got)
+	}
+	if got := formatter.ListPageFromIndex(16); got != 3 {
+		t.Errorf("idx 16: expected page 3, got %d", got)
+	}
+}

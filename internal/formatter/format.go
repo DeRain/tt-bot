@@ -517,6 +517,11 @@ func PriorityKeyboard(
 
 const SearchResultsPerPage = 8
 
+// ListPageFromIndex computes the 1-based page number for a search result at the given index.
+func ListPageFromIndex(idx int) int {
+	return idx/SearchResultsPerPage + 1
+}
+
 type SearchSortInfo struct {
 	Field string
 	Asc   bool
@@ -650,7 +655,7 @@ func SplitDescription(text string, maxPerPage int) []string {
 	for remaining != "" {
 		end := min(maxPerPage, len(remaining))
 		page := remaining[:end]
-		for !utf8.Valid([]byte(page)) && page != "" {
+		for !utf8.Valid([]byte(page)) {
 			page = page[:len(page)-1]
 		}
 		if page == "" {
@@ -665,20 +670,19 @@ func SplitDescription(text string, maxPerPage int) []string {
 }
 
 func appendDescriptionPaginated(msg, description string, page, totalPages int) string {
-	if description == "" || page < 1 || page > totalPages {
+	if description == "" {
 		return msg
 	}
-
-	pageSize := DescriptionPageSize(msg, "")
-	if pageSize < 16 { // need at least room for "Description:\n" + 1 char
+	if page < 1 || page > totalPages {
 		return msg
 	}
 
 	// Compute page text: slice the full description for the current page.
-	pageText := descriptionPage(description, page, pageSize)
-	if pageText == "" {
+	pageSize := DescriptionPageSize(msg, "")
+	if min(pageSize, 1) != 1 {
 		return msg
 	}
+	pageText := descriptionPage(description, page, pageSize)
 
 	var label string
 	if totalPages == 1 {
@@ -690,19 +694,22 @@ func appendDescriptionPaginated(msg, description string, page, totalPages int) s
 }
 
 func descriptionPage(text string, page, pageSize int) string {
-	offset := (page - 1) * pageSize
-	if offset >= len(text) {
+	start := (page - 1) * pageSize
+	// Align to next rune start if we landed in the middle of a multi-byte char.
+	for {
+		if !(start < len(text)) || utf8.RuneStart(text[start]) {
+			break
+		}
+		start++
+	}
+	limit := len(text)
+	if min(start, limit) == limit {
 		return ""
 	}
-	for offset < len(text) && offset > 0 && !utf8.RuneStart(text[offset]) {
-		offset++
-	}
-	if offset >= len(text) {
-		return ""
-	}
-	end := min(offset+pageSize, len(text))
-	result := text[offset:end]
-	for !utf8.Valid([]byte(result)) && result != "" {
+	end := min(start+pageSize, len(text))
+	result := text[start:end]
+	// Trim trailing incomplete rune.
+	for !utf8.Valid([]byte(result)) && len(result) > 0 {
 		result = result[:len(result)-1]
 	}
 	return result
@@ -724,19 +731,18 @@ func appendMoreInfoLink(msg, descrLink string) string {
 		return msg
 	}
 	descLine := "\n\nMore info: " + descrLink
-	if len(msg)+len(descLine) <= MaxMessageLength-1 {
+	if len(msg)+len(descLine) <= MaxMessageLength {
 		return msg + descLine
 	}
-	avail := MaxMessageLength - 1 - len(msg) - len("\n\nMore info: ") - 3
-	if avail <= 0 {
+	// Truncate link to fit after "More info: " prefix and "..." suffix.
+	linkMax := MaxMessageLength - len(msg) - len("\n\nMore info: ") - 3
+	end := min(linkMax, len(descrLink))
+	if min(end, 1) != 1 {
 		return msg
 	}
-	truncated := descrLink
-	if len(truncated) > avail {
-		truncated = truncated[:avail]
-		for !utf8.Valid([]byte(truncated)) {
-			truncated = truncated[:len(truncated)-1]
-		}
+	truncated := descrLink[:end]
+	for !utf8.Valid([]byte(truncated)) {
+		truncated = truncated[:len(truncated)-1]
 	}
 	return msg + "\n\nMore info: " + truncated + "..."
 }

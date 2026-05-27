@@ -34,6 +34,10 @@ func newDescriptionFetcher() *descriptionFetcher {
 	}
 }
 
+func newDescriptionFetcherWithClient(c *http.Client) *descriptionFetcher {
+	return &descriptionFetcher{client: c}
+}
+
 // fetch retrieves description text from the given descrLink URL.
 // Returns empty string on any error — callers should degrade gracefully.
 func (f *descriptionFetcher) fetch(ctx context.Context, rawURL string) string {
@@ -44,9 +48,7 @@ func (f *descriptionFetcher) fetch(ctx context.Context, rawURL string) string {
 	if parsed.Host == "" {
 		return ""
 	}
-	switch parsed.Scheme {
-	case "http", "https":
-	default:
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
 		return ""
 	}
 	if err := isPublicHostname(parsed.Host); err != nil {
@@ -54,8 +56,10 @@ func (f *descriptionFetcher) fetch(ctx context.Context, rawURL string) string {
 	}
 
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, http.NoBody)
-	req.Header["User-Agent"] = []string{"tt-bot/1.0"}
-	req.Header["Accept"] = []string{"text/html,application/xhtml+xml"}
+	req.Header = http.Header{
+		"User-Agent": {"tt-bot/1.0"},
+		"Accept":     {"text/html,application/xhtml+xml"},
+	}
 
 	resp, err := f.client.Do(req)
 	if err != nil {

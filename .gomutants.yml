@@ -1,7 +1,7 @@
 # gomutants configuration for tt-bot.
 # See: https://github.com/szhekpisov/gomutants
 
-workers: 4
+workers: 8
 timeout-coefficient: 10
 threshold-efficacy: 0
 cache: .gomutants-cache.json
