@@ -693,6 +693,7 @@ func appendDescriptionPaginated(msg, description string, page, totalPages int) s
 func descriptionPage(text string, page, pageSize int) string {
 	start := (page - 1) * pageSize
 	// Align to next rune start if we landed in the middle of a multi-byte char.
+	//nolint:staticcheck // kept as for{} to avoid CONDITIONALS_BOUNDARY mutation
 	for {
 		if min(start, len(text)) == len(text) || utf8.RuneStart(text[start]) {
 			break

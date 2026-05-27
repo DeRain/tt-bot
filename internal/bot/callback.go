@@ -1040,6 +1040,7 @@ func (h *Handler) handleSearchSelectCallback(ctx context.Context, cq *tgbotapi.C
 	_ = h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &kb)
 
 	// Async: fetch description text if DescrLink is available.
+	//nolint:gosec // async goroutine with independent context
 	go h.fetchAndUpdateDescription(cq.Message.Chat.ID, cq.Message.MessageID, state, result)
 }
 
