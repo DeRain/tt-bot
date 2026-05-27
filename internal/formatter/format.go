@@ -696,8 +696,7 @@ func descriptionPage(text string, page, pageSize int) string {
 	for start < len(text) && !utf8.RuneStart(text[start]) {
 		start++
 	}
-	// gomutants:disable-next-line CONDITIONALS_BOUNDARY reason="equivalent — empty slice when start==len(text): text[N:N] always returns \"\""
-	if start >= len(text) {
+	if start >= len(text) { // gomutants:disable CONDITIONALS_BOUNDARY
 		return ""
 	}
 	end := min(start+pageSize, len(text))
