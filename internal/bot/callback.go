@@ -1056,18 +1056,18 @@ func (h *Handler) fetchAndUpdateDescription(chatID int64, messageID int, state *
 	if s == nil {
 		return
 	}
-	if s.JobID != state.JobID {
-		return
-	}
-	if s.SelectedIdx != state.SelectedIdx {
-		return
-	}
 
-	// Store full description and compute pagination.
+	// Compute pages first so JobID/SelectedIdx are the final gates.
 	pageSize := formatter.DescriptionPageSize(formatter.FormatSearchConfirmBase(result), result.DescrLink)
 	pages := formatter.SplitDescription(desc, pageSize)
 	totalPages := len(pages)
 	if totalPages == 0 {
+		return
+	}
+	if s.JobID != state.JobID {
+		return
+	}
+	if s.SelectedIdx != state.SelectedIdx {
 		return
 	}
 	s.DescriptionText = desc
@@ -1097,11 +1097,7 @@ func (h *Handler) handleDescriptionPageCallback(ctx context.Context, cq *tgbotap
 		h.answerCallback(cq.ID, "Invalid action.")
 		return
 	}
-	page, err := strconv.Atoi(parts[2])
-	if err != nil {
-		h.answerCallback(cq.ID, "Invalid action.")
-		return
-	}
+	page, _ := strconv.Atoi(parts[2])
 	if page < 1 {
 		h.answerCallback(cq.ID, "Invalid action.")
 		return

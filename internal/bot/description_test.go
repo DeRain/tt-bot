@@ -2,6 +2,7 @@ package bot
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -508,7 +509,7 @@ func TestFetchAndUpdateDescription_NoDescrLink(t *testing.T) {
 		FileSize:   1024,
 		NbSeeders:  10,
 		NbLeechers: 5,
-		DescrLink:  "", // empty — should return early
+		DescrLink:  "",
 	}
 	state := &SearchState{
 		ChatID:    1,
@@ -524,6 +525,9 @@ func TestFetchAndUpdateDescription_NoDescrLink(t *testing.T) {
 	s := h.getSearch(1)
 	if s != nil && s.DescriptionText != "" {
 		t.Errorf("expected empty DescriptionText when no DescrLink, got %q", s.DescriptionText)
+	}
+	if edits := sender.editTexts(); len(edits) != 0 {
+		t.Errorf("expected 0 edits when no description, got %d: %v", len(edits), edits)
 	}
 }
 
@@ -572,20 +576,14 @@ func TestFetchAndUpdateDescription_NoSearchStored(t *testing.T) {
 	auth := NewAuthorizer([]int64{1})
 	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
-	result := qbt.SearchResult{
-		FileName:   "Test",
-		FileSize:   1024,
-		NbSeeders:  1,
-		NbLeechers: 1,
-		DescrLink:  "",
-	}
-	state := &SearchState{
-		ChatID:    1,
-		MessageID: 100,
-		JobID:     42,
-		Results:   []qbt.SearchResult{result},
-		Total:     1,
-	}
+	descServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(`<html><meta name="description" content="desc"></html>`))
+	}))
+	defer descServer.Close()
+
+	result := qbt.SearchResult{FileName: "Test", FileSize: 1, NbSeeders: 0, DescrLink: descServer.URL}
+	state := &SearchState{ChatID: 1, MessageID: 100, JobID: 42, Results: []qbt.SearchResult{result}, Total: 1}
 
 	h.fetchAndUpdateDescription(1, 100, state, result)
 
@@ -601,10 +599,23 @@ func TestFetchAndUpdateDescription_JobIDMismatch(t *testing.T) {
 	auth := NewAuthorizer([]int64{1})
 	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
-	result := qbt.SearchResult{FileName: "x", FileSize: 1, NbSeeders: 0, DescrLink: ""}
-	state := &SearchState{ChatID: 1, MessageID: 100, JobID: 99, Results: []qbt.SearchResult{result}, Total: 1}
-	h.storeSearch(1, &SearchState{ChatID: 1, MessageID: 100, JobID: 42, Results: []qbt.SearchResult{result}, Total: 1})
+	descServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(`<html><meta name="description" content="test desc"></html>`))
+	}))
+	defer descServer.Close()
+
+	result := qbt.SearchResult{FileName: "x", FileSize: 1, NbSeeders: 0, DescrLink: descServer.URL}
+	state := &SearchState{ChatID: 1, MessageID: 100, JobID: 99, SelectedIdx: 0,
+		Results: []qbt.SearchResult{result}, Total: 1}
+	h.storeSearch(1, &SearchState{ChatID: 1, MessageID: 100, JobID: 42, SelectedIdx: 0,
+		Results: []qbt.SearchResult{result}, Total: 1})
 	h.fetchAndUpdateDescription(1, 100, state, result)
+
+	s := h.getSearch(1)
+	if s != nil && s.DescriptionText != "" {
+		t.Errorf("expected no description for mismatched JobID, got %q", s.DescriptionText)
+	}
 }
 
 func TestFetchAndUpdateDescription_SelectedIdxMismatch(t *testing.T) {
@@ -613,10 +624,23 @@ func TestFetchAndUpdateDescription_SelectedIdxMismatch(t *testing.T) {
 	auth := NewAuthorizer([]int64{1})
 	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
 
-	result := qbt.SearchResult{FileName: "x", FileSize: 1, NbSeeders: 0, DescrLink: ""}
-	state := &SearchState{ChatID: 1, MessageID: 100, JobID: 42, SelectedIdx: 7, Results: []qbt.SearchResult{result}, Total: 1}
-	h.storeSearch(1, &SearchState{ChatID: 1, MessageID: 100, JobID: 42, SelectedIdx: 3, Results: []qbt.SearchResult{result}, Total: 1})
+	descServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(`<html><meta name="description" content="test desc"></html>`))
+	}))
+	defer descServer.Close()
+
+	result := qbt.SearchResult{FileName: "x", FileSize: 1, NbSeeders: 0, DescrLink: descServer.URL}
+	state := &SearchState{ChatID: 1, MessageID: 100, JobID: 42, SelectedIdx: 7,
+		Results: []qbt.SearchResult{result}, Total: 1}
+	h.storeSearch(1, &SearchState{ChatID: 1, MessageID: 100, JobID: 42, SelectedIdx: 3,
+		Results: []qbt.SearchResult{result}, Total: 1})
 	h.fetchAndUpdateDescription(1, 100, state, result)
+
+	s := h.getSearch(1)
+	if s != nil && s.DescriptionText != "" {
+		t.Errorf("expected no description for mismatched SelectedIdx, got %q", s.DescriptionText)
+	}
 }
 
 func TestFetchAndUpdateDescription_ZeroPages(t *testing.T) {
@@ -633,5 +657,29 @@ func TestFetchAndUpdateDescription_ZeroPages(t *testing.T) {
 	s := h.getSearch(1)
 	if s != nil && s.DescriptionPages != 0 {
 		t.Errorf("expected 0 pages for empty description, got %d", s.DescriptionPages)
+	}
+}
+
+type alwaysRespondRoundTripper struct{}
+
+func (m *alwaysRespondRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader(`<html><meta name="description" content="blocked desc"></html>`)),
+		Header:     http.Header{"Content-Type": {"text/html"}},
+		Request:    req,
+	}, nil
+}
+
+func TestDescriptionFetcher_SSRFBlocked_RunningServer(t *testing.T) {
+	// Use a mock transport that responds from any host, including loopback.
+	// Without the isPublicHostname guard, fetch() would return the response body.
+	// The guard must be the ONLY reason fetch returns "".
+	client := &http.Client{Transport: &alwaysRespondRoundTripper{}}
+	f := newDescriptionFetcherWithClient(client)
+
+	desc := f.fetch(context.Background(), "http://127.0.0.1/blocked")
+	if desc != "" {
+		t.Errorf("expected empty description for blocked loopback with running server, got %q", desc)
 	}
 }

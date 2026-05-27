@@ -2071,7 +2071,6 @@ func TestAppendMoreInfoLink_UTF8Truncation(t *testing.T) {
 }
 
 func TestDescriptionPage_UTF8Alignment(t *testing.T) {
-	// Description with multi-byte chars at page boundary.
 	result := qbt.SearchResult{
 		FileName:   "T",
 		FileSize:   0,
@@ -2083,6 +2082,9 @@ func TestDescriptionPage_UTF8Alignment(t *testing.T) {
 	msg := formatter.FormatSearchConfirm(result, desc, 2, 2)
 	if !utf8.ValidString(msg) {
 		t.Error("message contains invalid UTF-8 after page boundary alignment")
+	}
+	if strings.Contains(msg, "€") {
+		t.Error("page 2 should not contain the multi-byte char € from page 1 boundary")
 	}
 }
 

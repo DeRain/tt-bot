@@ -670,9 +670,6 @@ func SplitDescription(text string, maxPerPage int) []string {
 }
 
 func appendDescriptionPaginated(msg, description string, page, totalPages int) string {
-	if description == "" {
-		return msg
-	}
 	if page < 1 {
 		return msg
 	}
