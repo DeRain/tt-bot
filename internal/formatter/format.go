@@ -615,97 +615,14 @@ func SearchPaginationKeyboard(jobID, currentPage, totalPages int) Keyboard {
 	return rows
 }
 
-// FormatSearchConfirmBase returns the base message (without description) for computing page sizes.
-//
-//nolint:gocritic // result is passed by value intentionally
-func FormatSearchConfirmBase(result qbt.SearchResult) string {
-	msg := buildBaseMessage(result)
-	return appendMoreInfoLink(msg, result.DescrLink)
-}
-
 // FormatSearchConfirm builds a confirmation message for a selected search result.
-// If description and totalPages are non-zero, show "Description (page N/M):\n" with paginated text.
 // When result.DescrLink is non-empty, a "More info:" link line is always included.
 //
 //nolint:gocritic // result is passed by value intentionally; changing to pointer would require interface changes
-func FormatSearchConfirm(result qbt.SearchResult, description string, page, totalPages int) string {
+func FormatSearchConfirm(result qbt.SearchResult) string {
 	msg := buildBaseMessage(result)
 	msg = appendMoreInfoLink(msg, result.DescrLink)
-	msg = appendDescriptionPaginated(msg, description, page, totalPages)
 	return msg
-}
-
-// DescriptionPageSize returns the max chars available for description text on one page.
-func DescriptionPageSize(baseMsg, descrLink string) int {
-	msg := baseMsg
-	if descrLink != "" {
-		msg += "\n\nMore info: " + descrLink
-	}
-	return MaxMessageLength - 1 - len(msg) - 32 // margin for "Description:\n" or "Description (page N/M):\n"
-}
-
-// SplitDescription splits text into pages that fit within maxPerPage bytes.
-// Truncation is UTF-8 safe. Empty pages are skipped to prevent infinite loops.
-func SplitDescription(text string, maxPerPage int) []string {
-	if maxPerPage < 1 {
-		return nil
-	}
-	var pages []string
-	remaining := text
-	for remaining != "" {
-		end := min(maxPerPage, len(remaining))
-		page := remaining[:end]
-		for !utf8.Valid([]byte(page)) {
-			page = page[:len(page)-1]
-		}
-		if page == "" {
-			// Multi-byte character at start consumed the whole window; skip 1 byte.
-			remaining = remaining[1:]
-			continue
-		}
-		pages = append(pages, page)
-		remaining = remaining[len(page):]
-	}
-	return pages
-}
-
-func appendDescriptionPaginated(msg, description string, page, totalPages int) string {
-	if page < 1 {
-		return msg
-	}
-
-	// Compute page text: slice the full description for the current page.
-	pageSize := DescriptionPageSize(msg, "")
-	if pageSize <= 0 {
-		return msg
-	}
-	pageText := descriptionPage(description, page, pageSize)
-
-	var label string
-	if totalPages == 1 {
-		label = "\n\nDescription:\n"
-	} else {
-		label = fmt.Sprintf("\n\nDescription (page %d/%d):\n", page, totalPages)
-	}
-	return msg + label + pageText
-}
-
-func descriptionPage(text string, page, pageSize int) string {
-	start := (page - 1) * pageSize
-	// Align to next rune start if we landed in the middle of a multi-byte char.
-	for start < len(text) && !utf8.RuneStart(text[start]) {
-		start++
-	}
-	if start >= len(text) { // gomutants:disable CONDITIONALS_BOUNDARY
-		return ""
-	}
-	end := min(start+pageSize, len(text))
-	result := text[start:end]
-	// Trim trailing incomplete rune.
-	for !utf8.Valid([]byte(result)) {
-		result = result[:len(result)-1]
-	}
-	return result
 }
 
 //nolint:gocritic // result is passed by value intentionally; matching FormatSearchConfirm convention
@@ -760,29 +677,6 @@ func SearchConfirmKeyboard(jobID, resultIdx, page int) Keyboard {
 			Button{Text: "Back to results", CallbackData: fmt.Sprintf("sb:%d:%d", jobID, page)},
 		},
 	}
-}
-
-// SearchConfirmKeyboardWithDesc builds the confirmation keyboard with optional
-// description pagination buttons.
-func SearchConfirmKeyboardWithDesc(jobID, resultIdx, listPage, descPage, descTotal int) Keyboard {
-	kb := SearchConfirmKeyboard(jobID, resultIdx, listPage)
-	btnRow := ButtonRow{}
-	if descPage > 1 {
-		btnRow = append(btnRow, Button{
-			Text:         "▲ Prev page",
-			CallbackData: fmt.Sprintf("dp:%d:%d:%d", jobID, resultIdx, descPage-1),
-		})
-	}
-	if descPage < descTotal {
-		btnRow = append(btnRow, Button{
-			Text:         "▼ Next page",
-			CallbackData: fmt.Sprintf("dp:%d:%d:%d", jobID, resultIdx, descPage+1),
-		})
-	}
-	if len(btnRow) > 0 {
-		kb = append(kb, btnRow)
-	}
-	return kb
 }
 
 // CategoryKeyboard builds an inline keyboard with one button per category.

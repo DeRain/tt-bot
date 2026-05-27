@@ -179,8 +179,7 @@ func (h *Handler) handleCallback(ctx context.Context, cq *tgbotapi.CallbackQuery
 
 	case strings.HasPrefix(data, "sr:") || strings.HasPrefix(data, "sp:") ||
 		strings.HasPrefix(data, "sx:") || strings.HasPrefix(data, "ss:") ||
-		strings.HasPrefix(data, "sc:") || strings.HasPrefix(data, "sb:") ||
-		strings.HasPrefix(data, "dp:"):
+		strings.HasPrefix(data, "sc:") || strings.HasPrefix(data, "sb:"):
 		h.handleSearchCallback(ctx, cq, data)
 
 	case data == "noop":
@@ -205,8 +204,6 @@ func (h *Handler) handleSearchCallback(ctx context.Context, cq *tgbotapi.Callbac
 		h.handleSearchConfirmCallback(ctx, cq, strings.TrimPrefix(data, "sc:"))
 	case strings.HasPrefix(data, "sb:"):
 		h.handleSearchBackCallback(ctx, cq, strings.TrimPrefix(data, "sb:"))
-	case strings.HasPrefix(data, "dp:"):
-		h.handleDescriptionPageCallback(ctx, cq, strings.TrimPrefix(data, "dp:"))
 	}
 }
 
@@ -1027,97 +1024,10 @@ func (h *Handler) handleSearchSelectCallback(ctx context.Context, cq *tgbotapi.C
 	}
 
 	result := state.Results[idx]
-	// Reset description state on new selection.
-	state.DescriptionText = ""
-	state.DescriptionPages = 0
-	state.SelectedIdx = idx
 
-	text := formatter.FormatSearchConfirm(result, "", 0, 0)
+	text := formatter.FormatSearchConfirm(result)
 	page := formatter.ListPageFromIndex(idx)
 	kb := toTGKeyboard(formatter.SearchConfirmKeyboard(jobID, idx, page))
-
-	h.answerCallback(cq.ID, "")
-	_ = h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &kb)
-
-	// Async: fetch description text if DescrLink is available.
-	//nolint:gosec // async goroutine with independent context
-	go h.fetchAndUpdateDescription(cq.Message.Chat.ID, cq.Message.MessageID, state, result)
-}
-
-//nolint:gocritic // result is passed by value intentionally
-func (h *Handler) fetchAndUpdateDescription(chatID int64, messageID int, state *SearchState, result qbt.SearchResult) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	fetcher := newDescriptionFetcher()
-	desc := fetcher.fetch(ctx, result.DescrLink)
-
-	// Re-validate search state and selected result index.
-	s := h.getSearch(chatID)
-	if s == nil {
-		return
-	}
-
-	// Compute pages first so JobID/SelectedIdx are the final gates.
-	pageSize := formatter.DescriptionPageSize(formatter.FormatSearchConfirmBase(result), result.DescrLink)
-	pages := formatter.SplitDescription(desc, pageSize)
-	totalPages := len(pages)
-	if totalPages == 0 {
-		return
-	}
-	if s.JobID != state.JobID {
-		return
-	}
-	if s.SelectedIdx != state.SelectedIdx {
-		return
-	}
-	s.DescriptionText = desc
-	s.DescriptionPages = totalPages
-
-	// Show page 1 with pagination keyboard if multi-page.
-	listPage := formatter.ListPageFromIndex(state.SelectedIdx)
-	updatedText := formatter.FormatSearchConfirm(result, desc, 1, totalPages)
-	kb := toTGKeyboard(formatter.SearchConfirmKeyboardWithDesc(s.JobID, state.SelectedIdx, listPage, 1, totalPages))
-	_ = h.editMessageText(chatID, messageID, updatedText, &kb)
-}
-
-func (h *Handler) handleDescriptionPageCallback(ctx context.Context, cq *tgbotapi.CallbackQuery, data string) {
-	// Format: <jobID>:<idx>:<page>
-	parts := strings.SplitN(data, ":", 3)
-	if len(parts) != 3 {
-		h.answerCallback(cq.ID, "Invalid action.")
-		return
-	}
-	jobID, err := strconv.Atoi(parts[0])
-	if err != nil {
-		h.answerCallback(cq.ID, "Invalid action.")
-		return
-	}
-	idx, err := strconv.Atoi(parts[1])
-	if err != nil {
-		h.answerCallback(cq.ID, "Invalid action.")
-		return
-	}
-	page, _ := strconv.Atoi(parts[2])
-	if page < 1 {
-		h.answerCallback(cq.ID, "Invalid action.")
-		return
-	}
-
-	state := h.getSearch(cq.Message.Chat.ID)
-	if state == nil || state.JobID != jobID || state.DescriptionText == "" {
-		h.answerCallback(cq.ID, "Search expired.")
-		return
-	}
-	if page > state.DescriptionPages {
-		h.answerCallback(cq.ID, "Invalid page.")
-		return
-	}
-
-	result := state.Results[idx]
-	listPage := formatter.ListPageFromIndex(idx)
-	text := formatter.FormatSearchConfirm(result, state.DescriptionText, page, state.DescriptionPages)
-	kb := toTGKeyboard(formatter.SearchConfirmKeyboardWithDesc(jobID, idx, listPage, page, state.DescriptionPages))
 
 	h.answerCallback(cq.ID, "")
 	_ = h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &kb)
