@@ -2201,7 +2201,7 @@ func TestFormatSearchConfirm_MoreInfoLink_EndAtZero(t *testing.T) {
 }
 
 func TestFormatSearchConfirm_MoreInfoLink_ExactFit(t *testing.T) {
-	longName := strings.Repeat("x", 4008)
+	longName := strings.Repeat("x", 4015)
 	result := qbt.SearchResult{
 		FileName:   longName,
 		FileSize:   1024,

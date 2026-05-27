@@ -108,7 +108,8 @@ Unit tests run with `go test ./... -short`. Integration tests (`make test-integr
 - **Touching old code that has existing `gomutants:disable` comments REQUIRES fixing the underlying mutant** — remove the suppression and add a test.
 - **Equivalent mutants** (behaviorally identical to original) should be fixed by **restructuring the code** to eliminate the untestable branch, not by suppressing the mutant.
 - **Writing better tests beats adapting code to mutants.** Prefer expanding test coverage with mock injection, targeted boundary inputs, and internal-package tests over `min()` tricks or restructuring that hurts readability. Code clarity wins over mutation workarounds.
-- **Linter has priority over mutants when they conflict.** If a mutation-killing restructuring triggers a linter warning (e.g. `QF1006`), suppress the linter (`//nolint:staticcheck`), not the mutant. The linter is right about readability; the mutant is a mechanical edge case.
+- **Linter has priority over mutants when they conflict.** If a mutation-killing restructuring triggers a linter warning (e.g. `QF1006`), keep the clean code the linter wants and kill the mutant with better tests. Suppress the linter only as last resort.
+- **Never suppress the linter.** Keep the clean code. If a mutant survives the clean version, kill it with a better test. Only use `gomutants:disable` as absolute last resort for truly equivalent mutants.
 - Run `make mutation-test-pr` locally before pushing to confirm 0 lived mutants.
 
 ## Interface-Driven Design

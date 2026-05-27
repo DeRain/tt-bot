@@ -676,7 +676,7 @@ func appendDescriptionPaginated(msg, description string, page, totalPages int) s
 
 	// Compute page text: slice the full description for the current page.
 	pageSize := DescriptionPageSize(msg, "")
-	if min(pageSize, 1) != 1 {
+	if pageSize <= 0 {
 		return msg
 	}
 	pageText := descriptionPage(description, page, pageSize)
@@ -693,15 +693,11 @@ func appendDescriptionPaginated(msg, description string, page, totalPages int) s
 func descriptionPage(text string, page, pageSize int) string {
 	start := (page - 1) * pageSize
 	// Align to next rune start if we landed in the middle of a multi-byte char.
-	//nolint:staticcheck // kept as for{} to avoid CONDITIONALS_BOUNDARY mutation
-	for {
-		if min(start, len(text)) == len(text) || utf8.RuneStart(text[start]) {
-			break
-		}
+	for start < len(text) && !utf8.RuneStart(text[start]) {
 		start++
 	}
-	limit := len(text)
-	if min(start, limit) == limit {
+	// gomutants:disable-next-line CONDITIONALS_BOUNDARY reason="equivalent — empty slice when start==len(text): text[N:N] always returns \"\""
+	if start >= len(text) {
 		return ""
 	}
 	end := min(start+pageSize, len(text))
@@ -729,13 +725,13 @@ func appendMoreInfoLink(msg, descrLink string) string {
 		return msg
 	}
 	descLine := "\n\nMore info: " + descrLink
-	if min(len(msg)+len(descLine), MaxMessageLength) == len(msg)+len(descLine) {
+	if len(msg)+len(descLine) <= MaxMessageLength {
 		return msg + descLine
 	}
 	// Truncate link to fit after "More info: " prefix and "..." suffix.
 	linkMax := MaxMessageLength - len(msg) - len("\n\nMore info: ") - 3
 	end := min(linkMax, len(descrLink))
-	if min(end, 1) != 1 {
+	if end <= 0 {
 		return msg
 	}
 	truncated := descrLink[:end]
