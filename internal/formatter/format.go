@@ -676,9 +676,6 @@ func appendDescriptionPaginated(msg, description string, page, totalPages int) s
 	if page < 1 {
 		return msg
 	}
-	if page > totalPages {
-		return msg
-	}
 
 	// Compute page text: slice the full description for the current page.
 	pageSize := DescriptionPageSize(msg, "")
