@@ -2198,6 +2198,27 @@ func TestFormatSearchConfirm_MoreInfoLink_EndAtZero(t *testing.T) {
 	}
 }
 
+func TestFormatSearchConfirm_MoreInfoLink_ExactFit(t *testing.T) {
+	longName := strings.Repeat("x", 4008)
+	result := qbt.SearchResult{
+		FileName:   longName,
+		FileSize:   1024,
+		NbSeeders:  1,
+		NbLeechers: 1,
+		DescrLink:  "https://e.com",
+	}
+	msg := formatter.FormatSearchConfirm(result, "", 0, 0)
+	if len(msg) > formatter.MaxMessageLength {
+		t.Errorf("message exceeds limit: %d chars", len(msg))
+	}
+	if !strings.Contains(msg, "More info:") {
+		t.Error("expected full More info link when exactly fits")
+	}
+	if strings.Contains(msg, "...") {
+		t.Error("expected no ellipsis when link fits exactly")
+	}
+}
+
 func TestListPageFromIndex(t *testing.T) {
 	if got := formatter.ListPageFromIndex(0); got != 1 {
 		t.Errorf("idx 0: expected page 1, got %d", got)
