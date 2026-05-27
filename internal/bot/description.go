@@ -45,10 +45,7 @@ func (f *descriptionFetcher) fetch(ctx context.Context, rawURL string) string {
 	if err != nil {
 		return ""
 	}
-	if parsed.Host == "" {
-		return ""
-	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+	if !strings.HasPrefix(parsed.Scheme, "http") {
 		return ""
 	}
 	if err := isPublicHostname(parsed.Host); err != nil {

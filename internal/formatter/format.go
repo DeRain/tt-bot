@@ -673,7 +673,10 @@ func appendDescriptionPaginated(msg, description string, page, totalPages int) s
 	if description == "" {
 		return msg
 	}
-	if page < 1 || page > totalPages {
+	if page < 1 {
+		return msg
+	}
+	if page > totalPages {
 		return msg
 	}
 
@@ -731,7 +734,7 @@ func appendMoreInfoLink(msg, descrLink string) string {
 		return msg
 	}
 	descLine := "\n\nMore info: " + descrLink
-	if len(msg)+len(descLine) <= MaxMessageLength {
+	if min(len(msg)+len(descLine), MaxMessageLength) == len(msg)+len(descLine) {
 		return msg + descLine
 	}
 	// Truncate link to fit after "More info: " prefix and "..." suffix.
