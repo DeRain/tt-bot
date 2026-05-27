@@ -2382,3 +2382,38 @@ func TestCallback_DescriptionPage_WrongJobID(t *testing.T) {
 		t.Fatal("expected 'Search expired.' for mismatched JobID")
 	}
 }
+
+func TestCallback_DescriptionPage_NonNumericPageParsed(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	results := []qbt.SearchResult{
+		{FileName: "Test", FileSize: 1024, NbSeeders: 1, FileURL: "magnet:?xt=urn:btih:abc"},
+	}
+	h.storeSearch(1, &SearchState{
+		ChatID:           1,
+		MessageID:        100,
+		JobID:            42,
+		Results:          results,
+		Total:            1,
+		DescriptionText:  "desc",
+		DescriptionPages: 1,
+	})
+
+	// dp:42:0:5abc — page parses as 5 with error, err != nil is true but page>=1.
+	update := newCallbackUpdate(1, "cb-dp", "dp:42:0:5abc")
+	h.HandleUpdate(context.Background(), update)
+
+	foundAnswer := false
+	for _, msg := range sender.sentMessages {
+		if cb, ok := msg.(tgbotapi.CallbackConfig); ok && cb.Text == "Invalid action." {
+			foundAnswer = true
+			break
+		}
+	}
+	if !foundAnswer {
+		t.Fatal("expected 'Invalid action.' for non-numeric page")
+	}
+}

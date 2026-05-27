@@ -1098,7 +1098,11 @@ func (h *Handler) handleDescriptionPageCallback(ctx context.Context, cq *tgbotap
 		return
 	}
 	page, err := strconv.Atoi(parts[2])
-	if err != nil || page < 1 {
+	if err != nil {
+		h.answerCallback(cq.ID, "Invalid action.")
+		return
+	}
+	if page < 1 {
 		h.answerCallback(cq.ID, "Invalid action.")
 		return
 	}
