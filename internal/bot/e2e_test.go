@@ -1501,3 +1501,151 @@ func TestE2E_DownloadHTTPTorrentAndAdd_ContentTypeRejected(t *testing.T) {
 	}
 }
 
+// TestE2E_AutoRefresh_ViewFiles verifies that registering a ViewFiles live view
+// and calling refreshViews correctly renders file content, does not show detail
+// fields, and skips unchanged content on subsequent refresh.
+func TestE2E_AutoRefresh_ViewFiles(t *testing.T) {
+	const (
+		chatID    = int64(3100)
+		messageID = 1101
+	)
+
+	ctx := context.Background()
+	qbtClient := getQBTClient(t)
+
+	// Add a torrent so we have files to display.
+	if err := qbtClient.AddMagnet(ctx, ubuntuMagnet, ""); err != nil {
+		t.Logf("AddMagnet (pre-seed): %v", err)
+	}
+	time.Sleep(3 * time.Second)
+
+	// Get torrent hash.
+	torrents, err := qbtClient.ListTorrents(ctx, qbt.ListOptions{Filter: qbt.FilterAll})
+	if err != nil {
+		t.Fatalf("ListTorrents() error = %v", err)
+	}
+	if len(torrents) == 0 {
+		t.Fatal("expected at least one torrent after adding magnet")
+	}
+	hash := torrents[0].Hash
+	name := torrents[0].Name
+
+	// Check files are available — skip if metadata still pending.
+	files, err := qbtClient.ListFiles(ctx, hash)
+	if err != nil || len(files) == 0 {
+		t.Skip("torrent has no files yet (metadata pending) — skipping files view test")
+	}
+
+	sender := &mockSender{}
+	auth := NewAuthorizer([]int64{chatID})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{
+		BotToken:            "test-token",
+		ViewRefreshInterval: 5 * time.Second,
+	})
+
+	// Register a live file list view.
+	h.registerLiveView(chatID, &LiveView{
+		ChatID:      chatID,
+		MessageID:   messageID,
+		ViewType:    ViewFiles,
+		TorrentHash: hash,
+		TorrentName: name,
+		FilterChar:  "a",
+		Page:        1,
+		FilePage:    1,
+	})
+
+	// Trigger refresh — should render the file list.
+	h.refreshViews(ctx)
+
+	// The mock sender should have received an EditMessageTextConfig.
+	if !sender.hasRequest() {
+		t.Fatal("expected editMessageText for files view after refreshViews")
+	}
+
+	// Assert the edit contains file list content (📁 Files: header).
+	if !sender.hasEditText("📁 Files:") {
+		t.Fatalf("expected file list header in edit, got edits: %v", sender.editTexts())
+	}
+
+	// Assert the edit does NOT contain detail-view fields like "Size:".
+	if sender.hasEditText("Size:") {
+		t.Fatal("expected files view without detail field 'Size:', got detail view content")
+	}
+
+	// Reset and refresh again — content should be identical (no edit).
+	sender.reset()
+	h.refreshViews(ctx)
+	if sender.hasRequest() {
+		t.Fatal("expected no edit on unchanged file list content after second refresh")
+	}
+}
+
+// TestE2E_FilesBackToDetailAutoRefresh verifies that the bk:fl: callback
+// registers a detail view live view and that refreshViews correctly refreshes it
+// with real qBittorrent data.
+func TestE2E_FilesBackToDetailAutoRefresh(t *testing.T) {
+	const (
+		chatID = int64(3101)
+		userID = int64(3101)
+	)
+
+	ctx := context.Background()
+	qbtClient := getQBTClient(t)
+
+	// Add a torrent so there's something to navigate back to.
+	if err := qbtClient.AddMagnet(ctx, ubuntuMagnet, ""); err != nil {
+		t.Logf("AddMagnet (pre-seed): %v", err)
+	}
+	time.Sleep(3 * time.Second)
+
+	// Get torrent hash.
+	torrents, err := qbtClient.ListTorrents(ctx, qbt.ListOptions{Filter: qbt.FilterAll})
+	if err != nil {
+		t.Fatalf("ListTorrents() error = %v", err)
+	}
+	if len(torrents) == 0 {
+		t.Fatal("expected at least one torrent after adding magnet")
+	}
+	hash := torrents[0].Hash
+
+	sender := &mockSender{}
+	auth := NewAuthorizer([]int64{userID})
+	// Use ViewRefreshInterval=0 to disable auto-refresh goroutine.
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{
+		BotToken:            "test-token",
+		ViewRefreshInterval: 0,
+	})
+
+	// Simulate bk:fl: callback — navigates from file list back to detail view.
+	// Format: bk:fl:<filterChar>:<listPage>:<hash>
+	cbData := "bk:fl:a:1:" + hash
+	update := newCallbackUpdate(chatID, "cb-bkfl-auto", cbData)
+	h.HandleUpdate(ctx, update)
+
+	// Verify the live view was registered as a detail view.
+	h.liveViewsMu.Lock()
+	lv, ok := h.liveViews[chatID]
+	h.liveViewsMu.Unlock()
+	if !ok {
+		t.Fatal("expected live view to be registered after bk:fl: callback")
+	}
+	if lv.ViewType != ViewDetail {
+		t.Fatalf("expected ViewDetail live view, got %s", lv.ViewType)
+	}
+	if lv.TorrentHash != hash {
+		t.Fatalf("expected TorrentHash %q, got %q", hash, lv.TorrentHash)
+	}
+
+	// Trigger auto-refresh.
+	h.refreshViews(ctx)
+
+	// The mock sender should have received an edit with detail view content.
+	if !sender.hasRequest() {
+		t.Fatal("expected editMessageText after refreshViews on detail view")
+	}
+	if !sender.hasEditText("Size:") {
+		t.Fatalf("expected detail view with 'Size:' field after refresh, got edits: %v", sender.editTexts())
+	}
+}
+

@@ -1163,6 +1163,43 @@ func TestCallbackFL_ShowsFileList(t *testing.T) {
 	}
 }
 
+func TestCallbackFL_RegistersViewFiles(t *testing.T) {
+	sender := &mockSender{}
+	hash := strings.Repeat("a", 40)
+	qbtClient := &mockQBTClient{
+		torrents: []qbt.Torrent{
+			{Hash: hash, Name: "My Show"},
+		},
+		torrentFiles: map[string][]qbt.TorrentFile{
+			hash: {
+				{Index: 0, Name: "Season 1/ep01.mkv", Size: 1 << 30, Progress: 0.5, Priority: qbt.FilePriorityNormal},
+			},
+		},
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	// fl:<filterChar>:<listPage>:<hash>
+	update := newCallbackUpdate(1, "cb-fl-lv", "fl:a:1:"+hash)
+	h.HandleUpdate(context.Background(), update)
+
+	h.liveViewsMu.Lock()
+	lv, ok := h.liveViews[1]
+	h.liveViewsMu.Unlock()
+	if !ok {
+		t.Fatal("expected live view to be registered after fl: callback")
+	}
+	if lv.ViewType != ViewFiles {
+		t.Errorf("expected ViewType=ViewFiles, got %s", lv.ViewType)
+	}
+	if lv.FilePage != 1 {
+		t.Errorf("expected FilePage=1, got %d", lv.FilePage)
+	}
+	if lv.TorrentHash != hash {
+		t.Errorf("expected TorrentHash=%s, got %s", hash, lv.TorrentHash)
+	}
+}
+
 // TestCallbackFL_ListFilesError verifies that when ListFiles returns an error
 // the bot answers with a user-friendly message and does not crash (AC-1.3).
 func TestCallbackFL_ListFilesError(t *testing.T) {
@@ -1227,6 +1264,45 @@ func TestCallbackPgFL_NavigatesToCorrectPage(t *testing.T) {
 	}
 }
 
+func TestCallbackPgFL_RegistersViewFilesWithFilePage(t *testing.T) {
+	sender := &mockSender{}
+	hash := strings.Repeat("c", 40)
+
+	files := make([]qbt.TorrentFile, 8)
+	for i := range files {
+		files[i] = qbt.TorrentFile{
+			Index:    i,
+			Name:     fmt.Sprintf("file%02d.mkv", i),
+			Size:     1 << 20,
+			Progress: 0.0,
+			Priority: qbt.FilePriorityNormal,
+		}
+	}
+	qbtClient := &mockQBTClient{
+		torrents:     []qbt.Torrent{{Hash: hash, Name: "Show"}},
+		torrentFiles: map[string][]qbt.TorrentFile{hash: files},
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	// pg:fl:<hash>:<filePage>:<filterChar>:<listPage>
+	update := newCallbackUpdate(1, "cb-pgfl-lv", "pg:fl:"+hash+":2:a:1")
+	h.HandleUpdate(context.Background(), update)
+
+	h.liveViewsMu.Lock()
+	lv, ok := h.liveViews[1]
+	h.liveViewsMu.Unlock()
+	if !ok {
+		t.Fatal("expected live view to be registered after pg:fl: callback")
+	}
+	if lv.ViewType != ViewFiles {
+		t.Errorf("expected ViewType=ViewFiles, got %s", lv.ViewType)
+	}
+	if lv.FilePage != 2 {
+		t.Errorf("expected FilePage=2, got %d", lv.FilePage)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // fs: callback tests (TEST-6, AC-4.1, AC-4.3)
 // ---------------------------------------------------------------------------
@@ -1257,6 +1333,40 @@ func TestCallbackFS_ShowsPriorityKeyboard(t *testing.T) {
 	// Must edit the message (showing priority selection).
 	if len(sender.editTexts()) == 0 {
 		t.Fatal("expected message edit to show priority keyboard")
+	}
+}
+
+func TestCallbackFS_DeregistersLiveView(t *testing.T) {
+	sender := &mockSender{}
+	hash := strings.Repeat("d", 40)
+	qbtClient := &mockQBTClient{
+		torrentFiles: map[string][]qbt.TorrentFile{
+			hash: {
+				{Index: 0, Name: "file.mkv", Size: 1 << 20, Progress: 0.5, Priority: qbt.FilePriorityNormal},
+			},
+		},
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	// Pre-register a live view with ViewFiles type.
+	h.registerLiveView(1, &LiveView{
+		ChatID:      1,
+		MessageID:   42,
+		ViewType:    ViewFiles,
+		TorrentHash: hash,
+		FilePage:    1,
+	})
+
+	// fs:<hash>:<fileIndex>:<filePage>:<filterChar>:<listPage>
+	update := newCallbackUpdate(1, "cb-fs-lv", "fs:"+hash+":0:1:a:1")
+	h.HandleUpdate(context.Background(), update)
+
+	h.liveViewsMu.Lock()
+	_, ok := h.liveViews[1]
+	h.liveViewsMu.Unlock()
+	if ok {
+		t.Fatal("expected live view to be deregistered after fs: callback")
 	}
 }
 
@@ -1294,6 +1404,38 @@ func TestCallbackFP_SetsFilePriorityAndRefreshes(t *testing.T) {
 	// Must edit message to show refreshed file list.
 	if !sender.hasEditText("ep01.mkv") {
 		t.Fatalf("expected file list refresh after fp:, got edits: %v", sender.editTexts())
+	}
+}
+
+func TestCallbackFP_RegistersViewFiles(t *testing.T) {
+	sender := &mockSender{}
+	hash := strings.Repeat("e", 40)
+	qbtClient := &mockQBTClient{
+		torrents: []qbt.Torrent{{Hash: hash, Name: "Show"}},
+		torrentFiles: map[string][]qbt.TorrentFile{
+			hash: {
+				{Index: 0, Name: "ep01.mkv", Size: 1 << 20, Progress: 0.8, Priority: qbt.FilePriorityNormal},
+			},
+		},
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	// fp:<hash>:<fileIndex>:<priority>:<filePage>:<filterChar>:<listPage>
+	update := newCallbackUpdate(1, "cb-fp-lv", "fp:"+hash+":0:0:1:a:1")
+	h.HandleUpdate(context.Background(), update)
+
+	h.liveViewsMu.Lock()
+	lv, ok := h.liveViews[1]
+	h.liveViewsMu.Unlock()
+	if !ok {
+		t.Fatal("expected live view to be registered after fp: callback")
+	}
+	if lv.ViewType != ViewFiles {
+		t.Errorf("expected ViewType=ViewFiles, got %s", lv.ViewType)
+	}
+	if lv.FilePage != 1 {
+		t.Errorf("expected FilePage=1, got %d", lv.FilePage)
 	}
 }
 
@@ -1349,6 +1491,34 @@ func TestCallbackBkFL_ReturnsToDetailView(t *testing.T) {
 	}
 	if !sender.hasEditText("Size:") {
 		t.Fatalf("expected detail fields (Size:) after bk:fl:, got edits: %v", sender.editTexts())
+	}
+}
+
+func TestCallbackBkFL_RegistersDetailView(t *testing.T) {
+	sender := &mockSender{}
+	hash := strings.Repeat("a", 40)
+	qbtClient := &mockQBTClient{
+		torrents: []qbt.Torrent{
+			{Hash: hash, Name: "My Torrent", State: "downloading", Size: 2 << 30},
+		},
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	update := newCallbackUpdate(1, "cb-bkfl-lv", "bk:fl:a:1:"+hash)
+	h.HandleUpdate(context.Background(), update)
+
+	h.liveViewsMu.Lock()
+	lv, ok := h.liveViews[1]
+	h.liveViewsMu.Unlock()
+	if !ok {
+		t.Fatal("expected live view to be registered after bk:fl: callback")
+	}
+	if lv.ViewType != ViewDetail {
+		t.Errorf("expected ViewType=ViewDetail, got %s", lv.ViewType)
+	}
+	if lv.TorrentHash != hash {
+		t.Errorf("expected TorrentHash=%s, got %s", hash, lv.TorrentHash)
 	}
 }
 

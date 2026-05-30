@@ -77,6 +77,8 @@ const (
 	ViewList ViewType = "list"
 	// ViewDetail is a single-torrent detail view.
 	ViewDetail ViewType = "detail"
+	// ViewFiles is a per-torrent file list view with per-file progress and priorities.
+	ViewFiles ViewType = "files"
 )
 
 // LiveView represents an active view that is auto-refreshed.
@@ -91,6 +93,9 @@ type LiveView struct {
 	Page       int
 	// For detail views:
 	TorrentHash string
+	// For files views:
+	FilePage    int
+	TorrentName string
 	// Change detection:
 	LastContentHash string
 	// Lifecycle tracking:
@@ -890,6 +895,7 @@ func (h *Handler) refreshLiveView(ctx context.Context, lv *LiveView) error {
 	filter := lv.Filter
 	filterChar := lv.FilterChar
 	page := lv.Page
+	filePage := lv.FilePage
 	lastHash := lv.LastContentHash
 	h.liveViewsMu.Unlock()
 
@@ -915,6 +921,12 @@ func (h *Handler) refreshLiveView(ctx context.Context, lv *LiveView) error {
 		}
 		text = formatter.FormatTorrentDetail(torrent)
 		kb = formatter.TorrentDetailKeyboard(lv.TorrentHash, filterChar, page, torrent.State)
+	case ViewFiles:
+		fps := formatter.FilesPageState{FilePage: filePage, FilterChar: filterChar, ListPage: page}
+		text, kb, err = h.renderFilesPage(ctx, lv.TorrentHash, lv.TorrentName, fps)
+		if err != nil {
+			return err
+		}
 	default:
 		return nil
 	}

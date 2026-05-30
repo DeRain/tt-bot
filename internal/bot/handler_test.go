@@ -1768,3 +1768,74 @@ func TestRefreshViews_ConcurrencyLimit(t *testing.T) {
 		t.Fatal("expected Request calls for concurrent views")
 	}
 }
+
+func TestRefreshLiveView_ViewFiles_Refreshes(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{
+		torrentFiles: map[string][]qbt.TorrentFile{
+			"hash123": {
+				{Index: 0, Name: "track01.flac", Size: 1024000, Progress: 0.5, Priority: qbt.FilePriorityNormal},
+				{Index: 1, Name: "track02.flac", Size: 2048000, Progress: 1.0, Priority: qbt.FilePriorityHigh},
+			},
+		},
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	chatID := int64(1)
+	lv := &LiveView{
+		ChatID:      chatID,
+		MessageID:   100,
+		ViewType:    ViewFiles,
+		FilePage:    1,
+		TorrentHash: "hash123",
+		TorrentName: "Test Album",
+	}
+	h.registerLiveView(chatID, lv)
+
+	err := h.refreshLiveView(context.Background(), lv)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !sender.hasRequest() {
+		t.Fatal("expected editMessageText for file list refresh")
+	}
+
+	if !sender.hasEditText("track01.flac") {
+		t.Fatalf("expected file name 'track01.flac' in edited message, got: %v", sender.editTexts())
+	}
+	if !sender.hasEditText("track02.flac") {
+		t.Fatalf("expected file name 'track02.flac' in edited message, got: %v", sender.editTexts())
+	}
+
+	// LastContentHash should be updated.
+	if lv.LastContentHash == "" {
+		t.Fatal("expected LastContentHash to be updated after refresh")
+	}
+}
+
+func TestRefreshLiveView_ViewFiles_ListFilesError(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{
+		listFilesErr: errors.New("list files error"),
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	chatID := int64(1)
+	lv := &LiveView{
+		ChatID:      chatID,
+		MessageID:   100,
+		ViewType:    ViewFiles,
+		FilePage:    1,
+		TorrentHash: "hash123",
+		TorrentName: "Test Album",
+	}
+	h.registerLiveView(chatID, lv)
+
+	err := h.refreshLiveView(context.Background(), lv)
+	if err == nil {
+		t.Fatal("expected error from ListFiles to be returned by refreshLiveView")
+	}
+}

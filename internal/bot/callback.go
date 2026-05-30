@@ -786,6 +786,17 @@ func (h *Handler) handleFilesPageCallback(ctx context.Context, cq *tgbotapi.Call
 	tgKB := toTGKeyboard(kb)
 	h.answerCallback(cq.ID, "")
 	_ = h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &tgKB)
+
+	h.registerLiveView(cq.Message.Chat.ID, &LiveView{
+		ChatID:      cq.Message.Chat.ID,
+		MessageID:   cq.Message.MessageID,
+		ViewType:    ViewFiles,
+		TorrentHash: hash,
+		TorrentName: torrentName,
+		FilterChar:  filterChar,
+		Page:        listPage,
+		FilePage:    1,
+	})
 }
 
 // handleFilesPageNavCallback handles pg:fl:<hash>:<filePage>:<filterChar>:<listPage> —
@@ -825,6 +836,17 @@ func (h *Handler) handleFilesPageNavCallback(ctx context.Context, cq *tgbotapi.C
 	tgKB := toTGKeyboard(kb)
 	h.answerCallback(cq.ID, "")
 	_ = h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &tgKB)
+
+	h.registerLiveView(cq.Message.Chat.ID, &LiveView{
+		ChatID:      cq.Message.Chat.ID,
+		MessageID:   cq.Message.MessageID,
+		ViewType:    ViewFiles,
+		TorrentHash: hash,
+		TorrentName: torrentName,
+		FilterChar:  filterChar,
+		Page:        listPage,
+		FilePage:    filePage,
+	})
 }
 
 // handleBackFromFilesCallback handles bk:fl:<filterChar>:<listPage>:<hash> — returns
@@ -858,6 +880,15 @@ func (h *Handler) handleBackFromFilesCallback(ctx context.Context, cq *tgbotapi.
 
 	h.answerCallback(cq.ID, "")
 	_ = h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &kb)
+
+	h.registerLiveView(cq.Message.Chat.ID, &LiveView{
+		ChatID:      cq.Message.Chat.ID,
+		MessageID:   cq.Message.MessageID,
+		ViewType:    ViewDetail,
+		TorrentHash: hash,
+		FilterChar:  filterChar,
+		Page:        listPage,
+	})
 }
 
 // handleFileSelectCallback handles fs: callbacks — showing the priority selector for a file.
@@ -885,6 +916,8 @@ func (h *Handler) handleFileSelectCallback(ctx context.Context, cq *tgbotapi.Cal
 	kb := toTGKeyboard(formatter.PriorityKeyboard(hash, fileIndex, currentPriority, fps))
 	h.answerCallback(cq.ID, "")
 	_ = h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, "Select priority:", &kb)
+
+	h.deregisterLiveView(cq.Message.Chat.ID, cq.Message.MessageID)
 }
 
 // handleFilePriorityCallback handles fp: callbacks — setting a file's download priority.
@@ -932,6 +965,17 @@ func (h *Handler) handleFilePriorityCallback(ctx context.Context, cq *tgbotapi.C
 	tgKB := toTGKeyboard(kb)
 	h.answerCallback(cq.ID, "Priority updated.")
 	_ = h.editMessageText(cq.Message.Chat.ID, cq.Message.MessageID, text, &tgKB)
+
+	h.registerLiveView(cq.Message.Chat.ID, &LiveView{
+		ChatID:      cq.Message.Chat.ID,
+		MessageID:   cq.Message.MessageID,
+		ViewType:    ViewFiles,
+		TorrentHash: hash,
+		TorrentName: torrentName,
+		FilterChar:  filterChar,
+		Page:        listPage,
+		FilePage:    filePage,
+	})
 }
 
 // handleRemoveCancelCallback handles rc: by returning to the torrent detail view.
