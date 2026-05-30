@@ -899,35 +899,11 @@ func (h *Handler) refreshLiveView(ctx context.Context, lv *LiveView) error {
 	lastHash := lv.LastContentHash
 	h.liveViewsMu.Unlock()
 
-	var text string
-	var kb formatter.Keyboard
-	var err error
-
-	switch lv.ViewType {
-	case ViewList:
-		text, kb, err = h.renderTorrentListPage(ctx, filter, filterPrefixForView(lv), page)
-		if err != nil {
-			return err
-		}
-	case ViewDetail:
-		all, listErr := h.listTorrentsForFilter(ctx, qbt.FilterAll)
-		if listErr != nil {
-			return listErr
-		}
-		torrent, found := findTorrentByHash(all, lv.TorrentHash)
-		if !found {
-			h.deregisterLiveView(lv.ChatID, lv.MessageID)
-			return nil
-		}
-		text = formatter.FormatTorrentDetail(torrent)
-		kb = formatter.TorrentDetailKeyboard(lv.TorrentHash, filterChar, page, torrent.State)
-	case ViewFiles:
-		fps := formatter.FilesPageState{FilePage: filePage, FilterChar: filterChar, ListPage: page}
-		text, kb, err = h.renderFilesPage(ctx, lv.TorrentHash, lv.TorrentName, fps)
-		if err != nil {
-			return err
-		}
-	default:
+	text, kb, err := h.renderLiveViewContent(ctx, lv, filter, filterChar, page, filePage)
+	if err != nil {
+		return err
+	}
+	if text == "" {
 		return nil
 	}
 
@@ -966,6 +942,40 @@ func (h *Handler) refreshLiveView(ctx context.Context, lv *LiveView) error {
 		h.deregisterLiveView(lv.ChatID, lv.MessageID)
 	}
 	return editErr
+}
+
+// renderLiveViewContent renders the text and keyboard for a live view based on its type.
+// Returns empty text with nil error when the view should be silently skipped (e.g. ViewDetail
+// with a missing torrent).
+func (h *Handler) renderLiveViewContent(
+	ctx context.Context,
+	lv *LiveView,
+	filter qbt.TorrentFilter,
+	filterChar string,
+	page, filePage int,
+) (string, formatter.Keyboard, error) {
+	switch lv.ViewType {
+	case ViewList:
+		return h.renderTorrentListPage(ctx, filter, filterPrefixForView(lv), page)
+	case ViewDetail:
+		all, listErr := h.listTorrentsForFilter(ctx, qbt.FilterAll)
+		if listErr != nil {
+			return "", nil, listErr
+		}
+		torrent, found := findTorrentByHash(all, lv.TorrentHash)
+		if !found {
+			h.deregisterLiveView(lv.ChatID, lv.MessageID)
+			return "", nil, nil
+		}
+		text := formatter.FormatTorrentDetail(torrent)
+		kb := formatter.TorrentDetailKeyboard(lv.TorrentHash, filterChar, page, torrent.State)
+		return text, kb, nil
+	case ViewFiles:
+		fps := formatter.FilesPageState{FilePage: filePage, FilterChar: filterChar, ListPage: page}
+		return h.renderFilesPage(ctx, lv.TorrentHash, lv.TorrentName, fps)
+	default:
+		return "", nil, nil
+	}
 }
 
 // filterPrefixForView returns the pagination prefix for the lv's Filter.

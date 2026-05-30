@@ -1839,3 +1839,51 @@ func TestRefreshLiveView_ViewFiles_ListFilesError(t *testing.T) {
 		t.Fatal("expected error from ListFiles to be returned by refreshLiveView")
 	}
 }
+
+// TestRenderLiveViewContent_ViewDetail_ListError verifies that
+// renderLiveViewContent propagates list errors from the ViewDetail case.
+func TestRenderLiveViewContent_ViewDetail_ListError(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &errorQBTClient{listErr: errors.New("list error")}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	lv := &LiveView{
+		ChatID:      1,
+		ViewType:    ViewDetail,
+		TorrentHash: "abc",
+	}
+	_, _, err := h.renderLiveViewContent(context.Background(), lv, qbt.FilterAll, "a", 1, 0)
+	if err == nil {
+		t.Fatal("expected error from ListTorrents to be propagated by renderLiveViewContent")
+	}
+}
+
+// TestRefreshLiveView_SkipsWhenContentEmpty verifies that refreshLiveView
+// returns nil (no edit) when renderLiveViewContent returns empty text,
+// e.g. when a ViewDetail torrent is no longer found.
+func TestRefreshLiveView_SkipsWhenContentEmpty(t *testing.T) {
+	sender := &mockSender{}
+	qbtClient := &mockQBTClient{
+		torrents: []qbt.Torrent{},
+	}
+	auth := NewAuthorizer([]int64{1})
+	h := New(context.Background(), sender, qbtClient, auth, HandlerOptions{BotToken: "test-token"})
+
+	chatID := int64(1)
+	lv := &LiveView{
+		ChatID:      chatID,
+		MessageID:   200,
+		ViewType:    ViewDetail,
+		TorrentHash: "missing-hash",
+	}
+	h.registerLiveView(chatID, lv)
+
+	err := h.refreshLiveView(context.Background(), lv)
+	if err != nil {
+		t.Fatalf("expected nil error when content is empty (torrent not found), got: %v", err)
+	}
+	if sender.hasRequest() {
+		t.Fatal("expected no edit when content is empty")
+	}
+}
