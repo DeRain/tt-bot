@@ -31,8 +31,8 @@ const (
 	actionPollTimeout = 2 * time.Second
 
 	searchPollInterval = 1 * time.Second
-	searchTimeout      = 30 * time.Second
-	maxSearchPolls     = int(searchTimeout / searchPollInterval) // derived; ~30 polls for 30s default
+	searchTimeout      = 2 * time.Minute
+	maxSearchPolls     = int(searchTimeout / searchPollInterval) // derived; ~120 polls for 2m default
 	searchResultsLimit = 100
 	searchTTL          = 10 * time.Minute
 	searchPromptTTL    = 5 * time.Minute
