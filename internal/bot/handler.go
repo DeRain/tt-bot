@@ -892,14 +892,13 @@ func (h *Handler) refreshLiveView(ctx context.Context, lv *LiveView) error {
 	// concurrent callback handlers that update Page, Filter, FilterChar,
 	// and LastContentHash via liveViewsMu.
 	h.liveViewsMu.Lock()
-	filter := lv.Filter
 	filterChar := lv.FilterChar
 	page := lv.Page
 	filePage := lv.FilePage
 	lastHash := lv.LastContentHash
 	h.liveViewsMu.Unlock()
 
-	text, kb, err := h.renderLiveViewContent(ctx, lv, filter, filterChar, page, filePage)
+	text, kb, err := h.renderLiveViewContent(ctx, lv, filterChar, page, filePage)
 	if err != nil {
 		return err
 	}
@@ -950,13 +949,12 @@ func (h *Handler) refreshLiveView(ctx context.Context, lv *LiveView) error {
 func (h *Handler) renderLiveViewContent(
 	ctx context.Context,
 	lv *LiveView,
-	filter qbt.TorrentFilter,
 	filterChar string,
 	page, filePage int,
 ) (string, formatter.Keyboard, error) {
 	switch lv.ViewType {
 	case ViewList:
-		return h.renderTorrentListPage(ctx, filter, filterPrefixForView(lv), page)
+		return h.renderTorrentListPage(ctx, lv.Filter, filterPrefixForView(lv), page)
 	case ViewDetail:
 		all, listErr := h.listTorrentsForFilter(ctx, qbt.FilterAll)
 		if listErr != nil {

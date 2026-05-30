@@ -1853,7 +1853,7 @@ func TestRenderLiveViewContent_ViewDetail_ListError(t *testing.T) {
 		ViewType:    ViewDetail,
 		TorrentHash: "abc",
 	}
-	_, _, err := h.renderLiveViewContent(context.Background(), lv, qbt.FilterAll, "a", 1, 0)
+	_, _, err := h.renderLiveViewContent(context.Background(), lv, "a", 1, 0)
 	if err == nil {
 		t.Fatal("expected error from ListTorrents to be propagated by renderLiveViewContent")
 	}
